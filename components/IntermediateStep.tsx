@@ -1,10 +1,18 @@
 import { useState } from "react";
-import type { Message } from "ai/react";
+import type { UIMessage } from "@ai-sdk/react";
 import { cn } from "@/utils/cn";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
-export function IntermediateStep(props: { message: Message }) {
-  const parsedInput = JSON.parse(props.message.content);
+// Helper to extract text content from UIMessage parts
+function getMessageText(message: UIMessage): string {
+  return message.parts
+    .filter((part): part is { type: "text"; text: string } => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+}
+
+export function IntermediateStep(props: { message: UIMessage }) {
+  const parsedInput = JSON.parse(getMessageText(props.message));
   const action = parsedInput.action;
   const observation = parsedInput.observation;
   const [expanded, setExpanded] = useState(false);

@@ -1,8 +1,8 @@
 "use client";
 
-import { type Message } from "ai";
-import { useChat } from "ai/react";
-import { useState } from "react";
+import { type UIMessage, useChat } from "@ai-sdk/react";
+import { TextStreamChatTransport } from "ai";
+import { useState, useMemo } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { toast } from "sonner";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
@@ -23,8 +23,29 @@ import {
 } from "./ui/dialog";
 import { cn } from "@/utils/cn";
 
+// Helper to extract text content from UIMessage parts
+function getMessageText(message: UIMessage): string {
+  return message.parts
+    .filter((part): part is { type: "text"; text: string } => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+}
+
+// Helper to create a UIMessage with text content
+function createTextMessage(
+  id: string,
+  role: "user" | "assistant" | "system",
+  content: string
+): UIMessage {
+  return {
+    id,
+    role,
+    parts: [{ type: "text", text: content }],
+  };
+}
+
 function ChatMessages(props: {
-  messages: Message[];
+  messages: UIMessage[];
   emptyStateComponent: ReactNode;
   sourcesForMessages: Record<string, any>;
   aiEmoji?: string;
@@ -183,23 +204,16 @@ export function ChatWindow(props: {
     Record<string, any>
   >({});
 
-  const chat = useChat({
-    api: props.endpoint,
-    onResponse(response) {
-      const sourcesHeader = response.headers.get("x-sources");
-      const sources = sourcesHeader
-        ? JSON.parse(Buffer.from(sourcesHeader, "base64").toString("utf8"))
-        : [];
+  const [inputValue, setInputValue] = useState("");
 
-      const messageIndexHeader = response.headers.get("x-message-index");
-      if (sources.length && messageIndexHeader !== null) {
-        setSourcesForMessages({
-          ...sourcesForMessages,
-          [messageIndexHeader]: sources,
-        });
-      }
-    },
-    streamMode: "text",
+  // Create transport for the chat API endpoint
+  const transport = useMemo(
+    () => new TextStreamChatTransport({ api: props.endpoint }),
+    [props.endpoint]
+  );
+
+  const chat = useChat({
+    transport,
     onError: (e) =>
       toast.error(`Error while processing your request`, {
         description: e.message,
@@ -208,28 +222,36 @@ export function ChatWindow(props: {
 
   async function sendMessage(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (chat.isLoading || intermediateStepsLoading) return;
+    if (chat.status === "streaming" || intermediateStepsLoading) return;
 
     if (!showIntermediateSteps) {
-      chat.handleSubmit(e);
+      chat.sendMessage({ text: inputValue });
+      setInputValue("");
       return;
     }
 
     // Some extra work to show intermediate steps properly
     setIntermediateStepsLoading(true);
 
-    chat.setInput("");
-    const messagesWithUserReply = chat.messages.concat({
-      id: chat.messages.length.toString(),
-      content: chat.input,
-      role: "user",
-    });
+    const userMessage = createTextMessage(
+      chat.messages.length.toString(),
+      "user",
+      inputValue
+    );
+    setInputValue("");
+    const messagesWithUserReply = [...chat.messages, userMessage];
     chat.setMessages(messagesWithUserReply);
+
+    // Convert UIMessages to a simpler format for the API
+    const apiMessages = messagesWithUserReply.map((m) => ({
+      role: m.role,
+      content: getMessageText(m),
+    }));
 
     const response = await fetch(props.endpoint, {
       method: "POST",
       body: JSON.stringify({
-        messages: messagesWithUserReply,
+        messages: apiMessages,
         show_intermediate_steps: true,
       }),
     });
@@ -243,12 +265,18 @@ export function ChatWindow(props: {
       return;
     }
 
-    const responseMessages: Message[] = json.messages;
+    // Response messages from LangChain API (not UIMessage format)
+    interface LangChainMessage {
+      role: string;
+      content: string;
+      tool_calls?: Array<{ name: string; args: unknown }>;
+    }
+    const responseMessages: LangChainMessage[] = json.messages;
 
     // Represent intermediate steps as system messages for display purposes
     // TODO: Add proper support for tool messages
     const toolCallMessages = responseMessages.filter(
-      (responseMessage: Message) => {
+      (responseMessage: LangChainMessage) => {
         return (
           (responseMessage.role === "assistant" &&
             !!responseMessage.tool_calls?.length) ||
@@ -257,20 +285,22 @@ export function ChatWindow(props: {
       },
     );
 
-    const intermediateStepMessages = [];
+    const intermediateStepMessages: UIMessage[] = [];
     for (let i = 0; i < toolCallMessages.length; i += 2) {
       const aiMessage = toolCallMessages[i];
       const toolMessage = toolCallMessages[i + 1];
-      intermediateStepMessages.push({
-        id: (messagesWithUserReply.length + i / 2).toString(),
-        role: "system" as const,
-        content: JSON.stringify({
-          action: aiMessage.tool_calls?.[0],
-          observation: toolMessage.content,
-        }),
-      });
+      intermediateStepMessages.push(
+        createTextMessage(
+          (messagesWithUserReply.length + i / 2).toString(),
+          "system",
+          JSON.stringify({
+            action: aiMessage.tool_calls?.[0],
+            observation: toolMessage?.content,
+          })
+        )
+      );
     }
-    const newMessages = messagesWithUserReply;
+    const newMessages = [...messagesWithUserReply];
     for (const message of intermediateStepMessages) {
       newMessages.push(message);
       chat.setMessages([...newMessages]);
@@ -279,13 +309,11 @@ export function ChatWindow(props: {
       );
     }
 
+    const lastResponseContent =
+      responseMessages[responseMessages.length - 1]?.content ?? "";
     chat.setMessages([
       ...newMessages,
-      {
-        id: newMessages.length.toString(),
-        content: responseMessages[responseMessages.length - 1].content,
-        role: "assistant",
-      },
+      createTextMessage(newMessages.length.toString(), "assistant", lastResponseContent),
     ]);
   }
 
@@ -305,10 +333,10 @@ export function ChatWindow(props: {
       }
       footer={
         <ChatInput
-          value={chat.input}
-          onChange={chat.handleInputChange}
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
           onSubmit={sendMessage}
-          loading={chat.isLoading || intermediateStepsLoading}
+          loading={chat.status === "streaming" || intermediateStepsLoading}
           placeholder={props.placeholder ?? "What's it like to be a pirate?"}
         >
           {props.showIngestForm && (
@@ -341,7 +369,7 @@ export function ChatWindow(props: {
                 id="show_intermediate_steps"
                 name="show_intermediate_steps"
                 checked={showIntermediateSteps}
-                disabled={chat.isLoading || intermediateStepsLoading}
+                disabled={chat.status === "streaming" || intermediateStepsLoading}
                 onCheckedChange={(e) => setShowIntermediateSteps(!!e)}
               />
               <label htmlFor="show_intermediate_steps" className="text-sm">

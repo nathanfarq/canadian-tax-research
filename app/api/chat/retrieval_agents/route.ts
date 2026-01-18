@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Message as VercelChatMessage, StreamingTextResponse } from "ai";
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -17,7 +16,13 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 
 export const runtime = "edge";
 
-const convertVercelMessageToLangChainMessage = (message: VercelChatMessage) => {
+// Simple message type for API requests
+interface ApiChatMessage {
+  role: string;
+  content: string;
+}
+
+const convertVercelMessageToLangChainMessage = (message: ApiChatMessage) => {
   if (message.role === "user") {
     return new HumanMessage(message.content);
   } else if (message.role === "assistant") {
@@ -61,7 +66,7 @@ export async function POST(req: NextRequest) {
      */
     const messages = (body.messages ?? [])
       .filter(
-        (message: VercelChatMessage) =>
+        (message: ApiChatMessage) =>
           message.role === "user" || message.role === "assistant",
       )
       .map(convertVercelMessageToLangChainMessage);
@@ -143,7 +148,9 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      return new StreamingTextResponse(transformStream);
+      return new Response(transformStream, {
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
     } else {
       /**
        * We could also pick intermediate steps out from `streamEvents` chunks, but

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Message as VercelChatMessage, StreamingTextResponse } from "ai";
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -15,12 +14,18 @@ import {
 
 export const runtime = "edge";
 
+// Simple message type for API requests
+interface ChatMessage {
+  role: string;
+  content: string;
+}
+
 const combineDocumentsFn = (docs: Document[]) => {
   const serializedDocs = docs.map((doc) => doc.pageContent);
   return serializedDocs.join("\n\n");
 };
 
-const formatVercelMessages = (chatHistory: VercelChatMessage[]) => {
+const formatVercelMessages = (chatHistory: ChatMessage[]) => {
   const formattedDialogueTurns = chatHistory.map((message) => {
     if (message.role === "user") {
       return `Human: ${message.content}`;
@@ -160,8 +165,9 @@ export async function POST(req: NextRequest) {
       ),
     ).toString("base64");
 
-    return new StreamingTextResponse(stream, {
+    return new Response(stream, {
       headers: {
+        "Content-Type": "text/plain; charset=utf-8",
         "x-message-index": (previousMessages.length + 1).toString(),
         "x-sources": serializedSources,
       },
