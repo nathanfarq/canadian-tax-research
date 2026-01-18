@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import { SerpAPI } from "@langchain/community/tools/serpapi";
-import { Calculator } from "@langchain/community/tools/calculator";
 import {
   AIMessage,
   BaseMessage,
@@ -12,7 +11,7 @@ import {
   SystemMessage,
 } from "@langchain/core/messages";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 // Simple message type for API requests
 interface ApiChatMessage {
@@ -69,7 +68,7 @@ export async function POST(req: NextRequest) {
 
     // Requires process.env.SERPAPI_API_KEY to be set: https://serpapi.com/
     // You can remove this or use a different tool instead.
-    const tools = [new Calculator(), new SerpAPI()];
+    const tools = [new SerpAPI()];
     const chat = new ChatOpenAI({
       model: "gpt-4o-mini",
       temperature: 0,

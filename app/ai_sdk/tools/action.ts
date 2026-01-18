@@ -53,21 +53,16 @@ export async function executeTool(
     } else {
       // Use type casts to work around zod v3/v4 type conflicts
       const weatherAny: any = Weather;
+      const toolDefinition = {
+        type: "function" as const,
+        function: {
+          name: "get_weather",
+          description: Weather.description,
+          parameters: zodToJsonSchema(weatherAny),
+        },
+      };
       chain = prompt
-        .pipe(
-          llm.bind({
-            tools: [
-              {
-                type: "function" as const,
-                function: {
-                  name: "get_weather",
-                  description: Weather.description,
-                  parameters: zodToJsonSchema(weatherAny),
-                },
-              },
-            ],
-          }),
-        )
+        .pipe(llm.bindTools([toolDefinition]))
         .pipe(
           new JsonOutputKeyToolsParser({
             keyName: "get_weather",

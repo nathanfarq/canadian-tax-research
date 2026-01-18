@@ -12,7 +12,7 @@ import {
   StringOutputParser,
 } from "@langchain/core/output_parsers";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 // Simple message type for API requests
 interface ChatMessage {

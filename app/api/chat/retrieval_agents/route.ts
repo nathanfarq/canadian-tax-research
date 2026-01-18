@@ -11,10 +11,10 @@ import {
   SystemMessage,
 } from "@langchain/core/messages";
 import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
-import { createRetrieverTool } from "langchain/tools/retriever";
+import { createRetrieverTool } from "@langchain/classic/tools/retriever";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 // Simple message type for API requests
 interface ApiChatMessage {
