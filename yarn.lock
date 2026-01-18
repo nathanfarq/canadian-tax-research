@@ -18,6 +18,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@ai-sdk/openai@npm:^3.0.12":
+  version: 3.0.12
+  resolution: "@ai-sdk/openai@npm:3.0.12"
+  dependencies:
+    "@ai-sdk/provider": 3.0.4
+    "@ai-sdk/provider-utils": 4.0.8
+  peerDependencies:
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 9c6fb3ecbd05d18f289faf4cebb3ce897b7e9b9dfeee3b77bda90fcfcca154a1539dcac1203fa9739719a7ee12127828fe6b40d9bfa73481b9774a59673d6f10
+  languageName: node
+  linkType: hard
+
 "@ai-sdk/provider-utils@npm:4.0.8":
   version: 4.0.8
   resolution: "@ai-sdk/provider-utils@npm:4.0.8"
@@ -4262,6 +4274,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "langchain-nextjs-template@workspace:."
   dependencies:
+    "@ai-sdk/openai": ^3.0.12
     "@ai-sdk/react": ^3.0.41
     "@ai-sdk/rsc": ^2.0.39
     "@langchain/community": ^1.1.4
@@ -4286,6 +4299,7 @@ __metadata:
     eslint: 8.46.0
     eslint-config-next: 13.4.12
     langchain: ^1.2.10
+    langsmith: ^0.4.7
     lucide-react: ^0.473.0
     next: ^16.1.3
     next-themes: ^0.4.4
@@ -4322,7 +4336,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"langsmith@npm:>=0.4.0 <1.0.0":
+"langsmith@npm:>=0.4.0 <1.0.0, langsmith@npm:^0.4.7":
   version: 0.4.7
   resolution: "langsmith@npm:0.4.7"
   dependencies:
