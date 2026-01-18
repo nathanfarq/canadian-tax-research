@@ -45,7 +45,6 @@ export async function executeTool(
 
     if (options?.wso) {
       chain = prompt.pipe(
-        // @ts-expect-error - type instantiation too deep with zod/langchain combo
         llm.withStructuredOutput(Weather, {
           name: "get_weather",
         }),

@@ -61,7 +61,6 @@ export async function POST(req: NextRequest) {
      *
      * Under the hood, uses tool calling by default.
      */
-    // @ts-expect-error - type instantiation too deep with zod/langchain combo
     const functionCallingModel = model.withStructuredOutput(schema, {
       name: "output_formatter",
     });
