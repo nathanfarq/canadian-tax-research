@@ -2,8 +2,9 @@
 
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { createStreamableValue } from "ai/rsc";
-import { z } from "zod";
+import { createStreamableValue } from "@ai-sdk/rsc";
+// Use zod/v3 for compatibility with langchain and zod-to-json-schema
+import { z } from "zod/v3";
 import { Runnable } from "@langchain/core/runnables";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { JsonOutputKeyToolsParser } from "@langchain/core/output_parsers/openai_tools";
@@ -49,25 +50,22 @@ export async function executeTool(
         }),
       );
     } else {
+      // Use type casts to work around zod v3/v4 type conflicts
+      const weatherAny: any = Weather;
+      const toolDefinition = {
+        type: "function" as const,
+        function: {
+          name: "get_weather",
+          description: Weather.description,
+          parameters: zodToJsonSchema(weatherAny),
+        },
+      };
       chain = prompt
+        .pipe(llm.bindTools([toolDefinition]))
         .pipe(
-          llm.bind({
-            tools: [
-              {
-                type: "function" as const,
-                function: {
-                  name: "get_weather",
-                  description: Weather.description,
-                  parameters: zodToJsonSchema(Weather),
-                },
-              },
-            ],
-          }),
-        )
-        .pipe(
-          new JsonOutputKeyToolsParser<z.infer<typeof Weather>>({
+          new JsonOutputKeyToolsParser({
             keyName: "get_weather",
-            zodSchema: Weather,
+            zodSchema: weatherAny,
           }),
         );
     }

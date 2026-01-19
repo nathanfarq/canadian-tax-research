@@ -1,11 +1,21 @@
 import { cn } from "@/utils/cn";
-import type { Message } from "ai/react";
+import type { UIMessage } from "@ai-sdk/react";
+
+// Helper to extract text content from UIMessage parts
+function getMessageText(message: UIMessage): string {
+  return message.parts
+    .filter((part): part is { type: "text"; text: string } => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+}
 
 export function ChatMessageBubble(props: {
-  message: Message;
+  message: UIMessage;
   aiEmoji?: string;
   sources: any[];
 }) {
+  const messageContent = getMessageText(props.message);
+
   return (
     <div
       className={cn(
@@ -23,7 +33,7 @@ export function ChatMessageBubble(props: {
       )}
 
       <div className="whitespace-pre-wrap flex flex-col">
-        <span>{props.message.content}</span>
+        <span>{messageContent}</span>
 
         {props.sources && props.sources.length ? (
           <>

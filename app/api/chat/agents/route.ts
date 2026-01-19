@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Message as VercelChatMessage, StreamingTextResponse } from "ai";
 
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import { SerpAPI } from "@langchain/community/tools/serpapi";
-import { Calculator } from "@langchain/community/tools/calculator";
 import {
   AIMessage,
   BaseMessage,
@@ -13,9 +11,15 @@ import {
   SystemMessage,
 } from "@langchain/core/messages";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
-const convertVercelMessageToLangChainMessage = (message: VercelChatMessage) => {
+// Simple message type for API requests
+interface ApiChatMessage {
+  role: string;
+  content: string;
+}
+
+const convertVercelMessageToLangChainMessage = (message: ApiChatMessage) => {
   if (message.role === "user") {
     return new HumanMessage(message.content);
   } else if (message.role === "assistant") {
@@ -57,14 +61,14 @@ export async function POST(req: NextRequest) {
      */
     const messages = (body.messages ?? [])
       .filter(
-        (message: VercelChatMessage) =>
+        (message: ApiChatMessage) =>
           message.role === "user" || message.role === "assistant",
       )
       .map(convertVercelMessageToLangChainMessage);
 
     // Requires process.env.SERPAPI_API_KEY to be set: https://serpapi.com/
     // You can remove this or use a different tool instead.
-    const tools = [new Calculator(), new SerpAPI()];
+    const tools = [new SerpAPI()];
     const chat = new ChatOpenAI({
       model: "gpt-4o-mini",
       temperature: 0,
@@ -118,7 +122,9 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      return new StreamingTextResponse(transformStream);
+      return new Response(transformStream, {
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
     } else {
       /**
        * We could also pick intermediate steps out from `streamEvents` chunks, but

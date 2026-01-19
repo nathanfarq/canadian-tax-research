@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { z } from "zod";
+// Use zod/v3 for compatibility with langchain
+import { z } from "zod/v3";
 
 import { ChatOpenAI } from "@langchain/openai";
 import { PromptTemplate } from "@langchain/core/prompts";

@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Message as VercelChatMessage, StreamingTextResponse } from "ai";
 
 import { ChatOpenAI } from "@langchain/openai";
 import { PromptTemplate } from "@langchain/core/prompts";
-import { HttpResponseOutputParser } from "langchain/output_parsers";
+import { HttpResponseOutputParser } from "@langchain/classic/output_parsers";
 
 export const runtime = "edge";
 
-const formatMessage = (message: VercelChatMessage) => {
+// Simple message type for API requests
+interface ChatMessage {
+  role: string;
+  content: string;
+}
+
+const formatMessage = (message: ChatMessage) => {
   return `${message.role}: ${message.content}`;
 };
 
@@ -66,7 +71,9 @@ export async function POST(req: NextRequest) {
       input: currentMessageContent,
     });
 
-    return new StreamingTextResponse(stream);
+    return new Response(stream, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });
   }

@@ -2,17 +2,17 @@
 
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { TavilySearchResults } from "@langchain/community/tools/tavily_search";
-import { AgentExecutor, createToolCallingAgent } from "langchain/agents";
+import { SearchApi } from "@langchain/community/tools/searchapi";
+import { AgentExecutor, createToolCallingAgent } from "@langchain/classic/agents";
 import { pull } from "langchain/hub";
-import { createStreamableValue } from "ai/rsc";
+import { createStreamableValue } from "@ai-sdk/rsc";
 
 export async function runAgent(input: string) {
   "use server";
 
   const stream = createStreamableValue();
   (async () => {
-    const tools = [new TavilySearchResults({ maxResults: 1 })];
+    const tools = [new SearchApi()];
     const prompt = await pull<ChatPromptTemplate>(
       "hwchase17/openai-tools-agent",
     );
