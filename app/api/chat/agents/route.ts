@@ -1,146 +1,164 @@
 import { NextRequest, NextResponse } from "next/server";
-
-import { createReactAgent } from "@langchain/langgraph/prebuilt";
-import { ChatOpenAI } from "@langchain/openai";
-import { SerpAPI } from "@langchain/community/tools/serpapi";
+import { z } from "zod";
+import { zodSchema } from "ai";
 import {
-  AIMessage,
-  BaseMessage,
-  ChatMessage,
-  HumanMessage,
-  SystemMessage,
-} from "@langchain/core/messages";
+  openai,
+  streamText,
+  tool,
+  convertToModelMessages,
+  stepCountIs,
+} from "@/lib/langsmith";
 
 export const runtime = "nodejs";
+
+const AGENT_SYSTEM_PROMPT = `You are a talking parrot named Polly. All final responses must be how a talking parrot would respond. Squawk often!`;
+
+// Define the input schema for the search tool
+const searchInputSchema = z.object({
+  query: z.string().describe("The search query to look up"),
+});
+
+// SerpAPI tool - requires process.env.SERPAPI_API_KEY
+const searchWeb = tool({
+  description: "Search the web for current information using SerpAPI",
+  inputSchema: zodSchema(searchInputSchema),
+  execute: async ({ query }) => {
+    const apiKey = process.env.SERPAPI_API_KEY;
+    if (!apiKey) {
+      throw new Error("SERPAPI_API_KEY environment variable is not set");
+    }
+
+    const params = new URLSearchParams({
+      q: query,
+      api_key: apiKey,
+      engine: "google",
+    });
+
+    const response = await fetch(
+      `https://serpapi.com/search?${params.toString()}`
+    );
+
+    if (!response.ok) {
+      throw new Error(`SerpAPI request failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    // Extract relevant search results
+    const organicResults = data.organic_results?.slice(0, 3) ?? [];
+    const results = organicResults.map(
+      (result: { title: string; snippet: string; link: string }) => ({
+        title: result.title,
+        snippet: result.snippet,
+        link: result.link,
+      })
+    );
+
+    return JSON.stringify(results, null, 2);
+  },
+});
 
 // Simple message type for API requests
 interface ApiChatMessage {
   role: string;
   content: string;
+  parts?: Array<{ type: "text"; text: string }>;
 }
 
-const convertVercelMessageToLangChainMessage = (message: ApiChatMessage) => {
-  if (message.role === "user") {
-    return new HumanMessage(message.content);
-  } else if (message.role === "assistant") {
-    return new AIMessage(message.content);
-  } else {
-    return new ChatMessage(message.content, message.role);
-  }
+type NormalizedMessage = {
+  role: "system" | "user" | "assistant";
+  parts: Array<{ type: "text"; text: string }>;
 };
 
-const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
-  if (message._getType() === "human") {
-    return { content: message.content, role: "user" };
-  } else if (message._getType() === "ai") {
-    return {
-      content: message.content,
-      role: "assistant",
-      tool_calls: (message as AIMessage).tool_calls,
-    };
-  } else {
-    return { content: message.content, role: message._getType() };
-  }
-};
+// Convert simple {role, content} messages to UIMessage format for convertToModelMessages
+function normalizeMessages(messages: ApiChatMessage[]): NormalizedMessage[] {
+  return messages.map((m) => ({
+    role: m.role as NormalizedMessage["role"],
+    parts: m.parts ?? [{ type: "text", text: m.content }],
+  }));
+}
 
-const AGENT_SYSTEM_TEMPLATE = `You are a talking parrot named Polly. All final responses must be how a talking parrot would respond. Squawk often!`;
-
-/**
- * This handler initializes and calls an tool caling ReAct agent.
- * See the docs for more information:
- *
- * https://langchain-ai.github.io/langgraphjs/tutorials/quickstart/
- */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const returnIntermediateSteps = body.show_intermediate_steps;
-    /**
-     * We represent intermediate steps as system messages for display purposes,
-     * but don't want them in the chat history.
-     */
-    const messages = (body.messages ?? [])
-      .filter(
-        (message: ApiChatMessage) =>
-          message.role === "user" || message.role === "assistant",
-      )
-      .map(convertVercelMessageToLangChainMessage);
 
-    // Requires process.env.SERPAPI_API_KEY to be set: https://serpapi.com/
-    // You can remove this or use a different tool instead.
-    const tools = [new SerpAPI()];
-    const chat = new ChatOpenAI({
-      model: "gpt-4o-mini",
-      temperature: 0,
-    });
+    // Filter out system messages (intermediate steps displayed in UI)
+    const filteredMessages = (body.messages ?? []).filter(
+      (message: ApiChatMessage) =>
+        message.role === "user" || message.role === "assistant"
+    );
 
-    /**
-     * Use a prebuilt LangGraph agent.
-     */
-    const agent = createReactAgent({
-      llm: chat,
-      tools,
-      /**
-       * Modify the stock prompt in the prebuilt agent. See docs
-       * for how to customize your agent:
-       *
-       * https://langchain-ai.github.io/langgraphjs/tutorials/quickstart/
-       */
-      messageModifier: new SystemMessage(AGENT_SYSTEM_TEMPLATE),
-    });
+    // Normalize messages to UIMessage format before conversion
+    const normalizedMessages = normalizeMessages(filteredMessages);
+    const messages = await convertToModelMessages(normalizedMessages);
 
     if (!returnIntermediateSteps) {
-      /**
-       * Stream back all generated tokens and steps from their runs.
-       *
-       * We do some filtering of the generated events and only stream back
-       * the final response as a string.
-       *
-       * For this specific type of tool calling ReAct agents with OpenAI, we can tell when
-       * the agent is ready to stream back final output when it no longer calls
-       * a tool and instead streams back content.
-       *
-       * See: https://langchain-ai.github.io/langgraphjs/how-tos/stream-tokens/
-       */
-      const eventStream = await agent.streamEvents(
-        { messages },
-        { version: "v2" },
-      );
-
-      const textEncoder = new TextEncoder();
-      const transformStream = new ReadableStream({
-        async start(controller) {
-          for await (const { event, data } of eventStream) {
-            if (event === "on_chat_model_stream") {
-              // Intermediate chat model generations will contain tool calls and no content
-              if (!!data.chunk.content) {
-                controller.enqueue(textEncoder.encode(data.chunk.content));
-              }
-            }
-          }
-          controller.close();
-        },
+      // Stream response with tool calling
+      const result = streamText({
+        model: openai("gpt-4o-mini"),
+        system: AGENT_SYSTEM_PROMPT,
+        messages,
+        tools: { searchWeb },
+        stopWhen: stepCountIs(5), // Allow up to 5 tool call iterations
+        temperature: 0,
       });
 
-      return new Response(transformStream, {
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
+      return result.toTextStreamResponse();
     } else {
-      /**
-       * We could also pick intermediate steps out from `streamEvents` chunks, but
-       * they are generated as JSON objects, so streaming and displaying them with
-       * the AI SDK is more complicated.
-       */
-      const result = await agent.invoke({ messages });
+      // Return intermediate steps for debugging/display
+      const result = streamText({
+        model: openai("gpt-4o-mini"),
+        system: AGENT_SYSTEM_PROMPT,
+        messages,
+        tools: { searchWeb },
+        stopWhen: stepCountIs(5),
+        temperature: 0,
+      });
 
-      return NextResponse.json(
-        {
-          messages: result.messages.map(convertLangChainMessageToVercelMessage),
-        },
-        { status: 200 },
-      );
+      // Collect all steps
+      const allSteps: Array<{
+        role: string;
+        content: string;
+        tool_calls?: Array<{ name: string; args: unknown }>;
+      }> = [];
+
+      for await (const part of result.fullStream) {
+        if (part.type === "tool-call") {
+          allSteps.push({
+            role: "assistant",
+            content: "",
+            tool_calls: [{ name: part.toolName, args: part.input }],
+          });
+        } else if (part.type === "tool-result") {
+          allSteps.push({
+            role: "tool",
+            content:
+              typeof part.output === "string"
+                ? part.output
+                : JSON.stringify(part.output),
+          });
+        } else if (part.type === "text-delta") {
+          // Accumulate text in the last assistant message or create new one
+          const lastStep = allSteps[allSteps.length - 1];
+          if (lastStep && lastStep.role === "assistant" && !lastStep.tool_calls) {
+            lastStep.content += part.text;
+          } else {
+            allSteps.push({
+              role: "assistant",
+              content: part.text,
+            });
+          }
+        }
+      }
+
+      return NextResponse.json({ messages: allSteps }, { status: 200 });
     }
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });
+  } catch (e: unknown) {
+    const error = e as { message?: string; status?: number };
+    return NextResponse.json(
+      { error: error.message ?? "Unknown error" },
+      { status: error.status ?? 500 }
+    );
   }
 }
