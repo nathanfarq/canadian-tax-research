@@ -1,5 +1,6 @@
 import { cn } from "@/utils/cn";
 import type { UIMessage } from "@ai-sdk/react";
+import ReactMarkdown from "react-markdown";
 
 // Helper to extract text content from UIMessage parts
 function getMessageText(message: UIMessage): string {
@@ -32,8 +33,10 @@ export function ChatMessageBubble(props: {
         </div>
       )}
 
-      <div className="whitespace-pre-wrap flex flex-col">
-        <span>{messageContent}</span>
+      <div className="flex flex-col">
+        <div className="prose prose-sm dark:prose-invert max-w-none">
+          <ReactMarkdown>{messageContent}</ReactMarkdown>
+        </div>
 
         {props.sources && props.sources.length ? (
           <>
