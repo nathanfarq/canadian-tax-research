@@ -1,178 +1,173 @@
 import { NextRequest, NextResponse } from "next/server";
-
-import { createClient } from "@supabase/supabase-js";
-
-import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
-import { PromptTemplate } from "@langchain/core/prompts";
-import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase";
-import { Document } from "@langchain/core/documents";
-import { RunnableSequence } from "@langchain/core/runnables";
+import { QdrantVectorStore } from "@langchain/qdrant";
+import { OpenAIEmbeddings } from "@langchain/openai";
 import {
-  BytesOutputParser,
-  StringOutputParser,
-} from "@langchain/core/output_parsers";
+  openai,
+  streamText,
+  generateText,
+  convertToModelMessages,
+} from "@/lib/langsmith";
 
 export const runtime = "nodejs";
 
-// Simple message type for API requests
 interface ChatMessage {
   role: string;
   content: string;
+  parts?: Array<{ type: "text"; text: string }>;
 }
 
-const combineDocumentsFn = (docs: Document[]) => {
-  const serializedDocs = docs.map((doc) => doc.pageContent);
-  return serializedDocs.join("\n\n");
+type NormalizedMessage = {
+  role: "system" | "user" | "assistant";
+  parts: Array<{ type: "text"; text: string }>;
 };
 
-const formatVercelMessages = (chatHistory: ChatMessage[]) => {
-  const formattedDialogueTurns = chatHistory.map((message) => {
-    if (message.role === "user") {
-      return `Human: ${message.content}`;
-    } else if (message.role === "assistant") {
-      return `Assistant: ${message.content}`;
-    } else {
+const formatChatHistory = (messages: ChatMessage[]) => {
+  return messages
+    .map((message) => {
+      if (message.role === "user") {
+        return `Human: ${message.content}`;
+      } else if (message.role === "assistant") {
+        return `Assistant: ${message.content}`;
+      }
       return `${message.role}: ${message.content}`;
-    }
-  });
-  return formattedDialogueTurns.join("\n");
+    })
+    .join("\n");
 };
 
-const CONDENSE_QUESTION_TEMPLATE = `Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
+function normalizeMessages(messages: ChatMessage[]): NormalizedMessage[] {
+  return messages.map((m) => ({
+    role: m.role as NormalizedMessage["role"],
+    parts: m.parts ?? [{ type: "text", text: m.content }],
+  }));
+}
+
+const CONDENSE_QUESTION_PROMPT = `Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
 
 <chat_history>
-  {chat_history}
+{chat_history}
 </chat_history>
 
 Follow Up Input: {question}
 Standalone question:`;
-const condenseQuestionPrompt = PromptTemplate.fromTemplate(
-  CONDENSE_QUESTION_TEMPLATE,
-);
 
-const ANSWER_TEMPLATE = `You are an energetic talking puppy named Dana, and must answer all questions like a happy, talking dog would.
+const ANSWER_SYSTEM_PROMPT = `You are an energetic talking puppy named Dana, and must answer all questions like a happy, talking dog would.
 Use lots of puns!
 
 Answer the question based only on the following context and chat history:
 <context>
-  {context}
+{context}
 </context>
 
 <chat_history>
-  {chat_history}
-</chat_history>
+{chat_history}
+</chat_history>`;
 
-Question: {question}
-`;
-const answerPrompt = PromptTemplate.fromTemplate(ANSWER_TEMPLATE);
+async function getVectorStore() {
+  return QdrantVectorStore.fromExistingCollection(
+    new OpenAIEmbeddings({ model: "text-embedding-3-small" }),
+    {
+      url: process.env.QDRANT_URL!,
+      apiKey: process.env.QDRANT_API_KEY,
+      collectionName: "nathan-farquharson-free-qdrant-cluster",
+    }
+  );
+}
 
-/**
- * This handler initializes and calls a retrieval chain. It composes the chain using
- * LangChain Expression Language. See the docs for more information:
- *
- * https://js.langchain.com/v0.2/docs/how_to/qa_chat_history_how_to/
- */
+async function condenseQuestion(
+  question: string,
+  chatHistory: string
+): Promise<string> {
+  if (!chatHistory || !chatHistory.trim()) {
+    return question;
+  }
+
+  const prompt = CONDENSE_QUESTION_PROMPT.replace(
+    "{chat_history}",
+    chatHistory
+  ).replace("{question}", question);
+
+  const result = await generateText({
+    model: openai("gpt-4o-mini"),
+    prompt,
+    temperature: 0,
+  });
+
+  return result.text;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const messages = body.messages ?? [];
-    const previousMessages = messages.slice(0, -1);
-    const currentMessageContent = messages[messages.length - 1].content;
+    const messages: ChatMessage[] = body.messages ?? [];
 
-    const model = new ChatOpenAI({
-      model: "gpt-4o-mini",
+    if (messages.length === 0) {
+      return NextResponse.json(
+        { error: "No messages provided" },
+        { status: 400 }
+      );
+    }
+
+    const previousMessages = messages.slice(0, -1);
+    const currentMessageContent = messages[messages.length - 1]?.content ?? "";
+
+    const chatHistory = formatChatHistory(previousMessages) ?? "";
+
+    // Condense follow-up question into standalone question
+    const standaloneQuestion = await condenseQuestion(
+      currentMessageContent,
+      chatHistory
+    );
+
+    // Retrieve relevant documents from Qdrant
+    const vectorStore = await getVectorStore();
+    const documents = await vectorStore.similaritySearch(standaloneQuestion, 4);
+    const context = documents.map((doc) => doc.pageContent).join("\n\n");
+
+    // Build system prompt with context
+    const systemPrompt = ANSWER_SYSTEM_PROMPT.replace(
+      "{context}",
+      context
+    ).replace("{chat_history}", chatHistory);
+
+    // Normalize and convert messages for AI SDK
+    const normalizedMessages = normalizeMessages(
+      messages.filter((m) => m.role === "user" || m.role === "assistant")
+    );
+    const modelMessages = await convertToModelMessages(normalizedMessages);
+
+    // Stream response using AI SDK
+    const result = streamText({
+      model: openai("gpt-4o-mini"),
+      system: systemPrompt,
+      messages: modelMessages,
       temperature: 0.2,
     });
 
-    const client = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_PRIVATE_KEY!,
-    );
-    const vectorstore = new SupabaseVectorStore(new OpenAIEmbeddings(), {
-      client,
-      tableName: "documents",
-      queryName: "match_documents",
-    });
-
-    /**
-     * We use LangChain Expression Language to compose two chains.
-     * To learn more, see the guide here:
-     *
-     * https://js.langchain.com/docs/guides/expression_language/cookbook
-     *
-     * You can also use the "createRetrievalChain" method with a
-     * "historyAwareRetriever" to get something prebaked.
-     */
-    const standaloneQuestionChain = RunnableSequence.from([
-      condenseQuestionPrompt,
-      model,
-      new StringOutputParser(),
-    ]);
-
-    let resolveWithDocuments: (value: Document[]) => void;
-    const documentPromise = new Promise<Document[]>((resolve) => {
-      resolveWithDocuments = resolve;
-    });
-
-    const retriever = vectorstore.asRetriever({
-      callbacks: [
-        {
-          handleRetrieverEnd(documents) {
-            resolveWithDocuments(documents);
-          },
-        },
-      ],
-    });
-
-    const retrievalChain = retriever.pipe(combineDocumentsFn);
-
-    const answerChain = RunnableSequence.from([
-      {
-        context: RunnableSequence.from([
-          (input) => input.question,
-          retrievalChain,
-        ]),
-        chat_history: (input) => input.chat_history,
-        question: (input) => input.question,
-      },
-      answerPrompt,
-      model,
-    ]);
-
-    const conversationalRetrievalQAChain = RunnableSequence.from([
-      {
-        question: standaloneQuestionChain,
-        chat_history: (input) => input.chat_history,
-      },
-      answerChain,
-      new BytesOutputParser(),
-    ]);
-
-    const stream = await conversationalRetrievalQAChain.stream({
-      question: currentMessageContent,
-      chat_history: formatVercelMessages(previousMessages),
-    });
-
-    const documents = await documentPromise;
+    // Serialize sources for response header
     const serializedSources = Buffer.from(
       JSON.stringify(
-        documents.map((doc) => {
-          return {
-            pageContent: doc.pageContent.slice(0, 50) + "...",
-            metadata: doc.metadata,
-          };
-        }),
-      ),
+        documents.map((doc) => ({
+          pageContent: doc.pageContent.slice(0, 50) + "...",
+          metadata: doc.metadata,
+        }))
+      )
     ).toString("base64");
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "x-message-index": (previousMessages.length + 1).toString(),
-        "x-sources": serializedSources,
-      },
-    });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });
+    const response = result.toTextStreamResponse();
+
+    // Add custom headers for sources
+    response.headers.set(
+      "x-message-index",
+      (previousMessages.length + 1).toString()
+    );
+    response.headers.set("x-sources", serializedSources);
+
+    return response;
+  } catch (e: unknown) {
+    const error = e as { message?: string; status?: number };
+    return NextResponse.json(
+      { error: error.message ?? "Unknown error" },
+      { status: error.status ?? 500 }
+    );
   }
 }
