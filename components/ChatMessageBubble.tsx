@@ -1,6 +1,7 @@
 import { cn } from "@/utils/cn";
 import type { UIMessage } from "@ai-sdk/react";
 import ReactMarkdown from "react-markdown";
+import Image from "next/image";
 
 // Helper to extract text content from UIMessage parts
 function getMessageText(message: UIMessage): string {
@@ -28,8 +29,13 @@ export function ChatMessageBubble(props: {
       )}
     >
       {props.message.role !== "user" && (
-        <div className="mr-4 border bg-secondary -mt-2 rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center">
-          {props.aiEmoji}
+        <div className="mr-4 -mt-2 w-10 h-10 flex-shrink-0 flex items-center justify-center">
+          <Image
+            src="/images/20260117-logo1-icon-transparent.png"
+            alt="TaxBuddy"
+            width={40}
+            height={40}
+          />
         </div>
       )}
 
