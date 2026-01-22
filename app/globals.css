@@ -28,26 +28,26 @@
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --background: 240 10% 10%;
-      --foreground: 0 0% 100%;
-      --muted: 240 10% 15%;
-      --muted-foreground: 240 10% 65%;
-      --popover: 240 10% 12%;
-      --popover-foreground: 0 0% 100%;
-      --border: 240 10% 20%;
-      --input: 240 10% 15%;
-      --card: 240 10% 14%;
-      --card-foreground: 0 0% 100%;
-      --primary: 245 40% 55%;
-      --primary-foreground: 0 0% 100%;
-      --secondary: 245 25% 20%;
-      --secondary-foreground: 0 0% 100%;
-      --accent: 50 100% 50%;
-      --accent-foreground: 0 0% 0%;
-      --destructive: 0 84% 50%;
-      --destructive-foreground: 0 0% 100%;
-      --ring: 245 40% 55%;
-      --radius: 0.5rem;
+      --background: 240 10% 96%;
+    --foreground: 0 0% 0%;
+    --muted: 240 10% 92%;
+    --muted-foreground: 245 20% 45%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 0%;
+    --border: 240 15% 88%;
+    --input: 0 0% 100%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 0%;
+    --primary: 245 32% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 245 25% 92%;
+    --secondary-foreground: 0 0% 0%;
+    --accent: 50 100% 50%;
+    --accent-foreground: 0 0% 0%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 245 32% 50%;
+    --radius: 0.5rem;
     }
   }
 }

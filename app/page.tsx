@@ -6,33 +6,28 @@ export default function Home() {
     <GuideInfoBox>
       <ul>
         <li className="text-l">
-          🤖
-          <span className="ml-2">
-            Welcome to TaxBuddy! I'm your AI-powered tax assistant with access
-            to relevant tax documents and information.
-          </span>
+          Hi, I'm TaxBuddy! Your Canadian tax research assistant. 
         </li>
-        <li className="hidden text-l md:block">
-          🔍
-          <span className="ml-2">
-            I can search through tax documents to help answer your questions
-            about tax-related topics.
-          </span>
+        <li className="text-l">  
+          I can help you find CRA guidance, interpret tax legislation, and answer your tax
+          questions with citations.
         </li>
         <li className="text-l">
-          👇
-          <span className="ml-2">
-            Try asking a question about taxes below!
-          </span>
+          TaxBuddy is an AI research assistant that provides general Canadian tax information with citations. This is not professional advice. By using this tool, you agree that:
+          <ul className="list-disc ml-6 mt-2">
+            <li>You will verify all information with official CRA sources</li>
+            <li>Filing decisions remain your responsibility</li>
+            <li>You will consult a qualified professional for complex matters</li>
+          </ul>
         </li>
+        <li className="text-l">What can I help you with today?</li>
       </ul>
     </GuideInfoBox>
   );
   return (
     <ChatWindow
       endpoint="api/chat/retrieval_agents"
-      emoji="🤖"
-      placeholder="Ask me about taxes! I can search through tax documents to help answer your questions."
+      placeholder="Ask a tax question..."
       emptyStateComponent={InfoCard}
       showIntermediateStepsToggle={true}
     />

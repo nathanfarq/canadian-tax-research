@@ -337,7 +337,7 @@ export function ChatWindow(props: {
           onChange={(e) => setInputValue(e.target.value)}
           onSubmit={sendMessage}
           loading={chat.status === "streaming" || intermediateStepsLoading}
-          placeholder={props.placeholder ?? "What's it like to be a pirate?"}
+          placeholder={props.placeholder ?? "Type your message here..."}
         >
           {props.showIngestForm && (
             <Dialog>
@@ -373,7 +373,7 @@ export function ChatWindow(props: {
                 onCheckedChange={(e) => setShowIntermediateSteps(!!e)}
               />
               <label htmlFor="show_intermediate_steps" className="text-sm">
-                Show intermediate steps
+                Show steps
               </label>
             </div>
           )}
