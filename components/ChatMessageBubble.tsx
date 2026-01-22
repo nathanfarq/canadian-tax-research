@@ -34,7 +34,7 @@ export function ChatMessageBubble(props: {
       )}
 
       <div className="flex flex-col">
-        <div className="prose prose-sm dark:prose-invert max-w-none">
+        <div className="max-w-none text-foreground">
           <ReactMarkdown>{messageContent}</ReactMarkdown>
         </div>
 
