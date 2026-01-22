@@ -1,12 +1,9 @@
 import "./globals.css";
-import { Inter } from "next/font/google";
 import { ActiveLink } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { GithubIcon } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { NuqsAdapter } from "nuqs/adapters/next";
-
-const inter = Inter({ subsets: ["latin"] });
 
 const Logo = () => (
   <svg
@@ -58,7 +55,7 @@ export default function RootLayout({
         />
         <meta name="twitter:image" content="/images/og-image.png" />
       </head>
-      <body className={inter.className}>
+      <body style={{ fontFamily: 'Georgia, serif' }}>
         <NuqsAdapter>
           <div className="bg-secondary grid grid-rows-[auto,1fr] h-[100dvh]">
             <div className="grid grid-cols-[1fr,auto] gap-2 p-4">
