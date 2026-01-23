@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
-import { createClient } from "@supabase/supabase-js";
-import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase";
+import { QdrantVectorStore } from "@langchain/qdrant";
 import { OpenAIEmbeddings } from "@langchain/openai";
 
 export const runtime = "nodejs";
@@ -25,14 +24,13 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // Before running, follow set-up instructions at
-// https://js.langchain.com/v0.2/docs/integrations/vectorstores/supabase
-
+// https://docs.langchain.com/oss/javascript/integrations/vectorstores/qdrant
 /**
  * This handler takes input text, splits it into chunks, and embeds those chunks
  * into a vector store for later retrieval. See the following docs for more information:
  *
  * https://js.langchain.com/v0.2/docs/how_to/recursive_text_splitter
- * https://js.langchain.com/v0.2/docs/integrations/vectorstores/supabase
+ * https://docs.langchain.com/oss/javascript/integrations/vectorstores/qdrant
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -51,11 +49,6 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const client = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_PRIVATE_KEY!,
-    );
-
     const splitter = RecursiveCharacterTextSplitter.fromLanguage("markdown", {
       chunkSize: 256,
       chunkOverlap: 20,
@@ -64,13 +57,13 @@ export async function POST(req: NextRequest) {
     const splitDocuments = await splitter.createDocuments([text]);
 
     await withRetry(async () => {
-      await SupabaseVectorStore.fromDocuments(
+      await QdrantVectorStore.fromDocuments(
         splitDocuments,
-        new OpenAIEmbeddings(),
+        new OpenAIEmbeddings({ model: "text-embedding-3-small" }),
         {
-          client,
-          tableName: "documents",
-          queryName: "match_documents",
+          url: process.env.QDRANT_URL!,
+          apiKey: process.env.QDRANT_API_KEY,
+          collectionName: "taxbuddy-documents",
         },
       );
     });
