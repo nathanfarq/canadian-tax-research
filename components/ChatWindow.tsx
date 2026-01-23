@@ -2,7 +2,7 @@
 
 import { type UIMessage, useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport } from "ai";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { toast } from "sonner";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
@@ -188,11 +188,12 @@ export function ChatLayout(props: { content: ReactNode; footer: ReactNode }) {
 
 export function ChatWindow(props: {
   endpoint: string;
-  emptyStateComponent: ReactNode;
+  emptyStateComponent?: ReactNode;
   placeholder?: string;
   emoji?: string;
   showIngestForm?: boolean;
   showIntermediateStepsToggle?: boolean;
+  initialMessage?: string;
 }) {
   const [showIntermediateSteps, setShowIntermediateSteps] = useState(
     !!props.showIntermediateStepsToggle,
@@ -219,6 +220,13 @@ export function ChatWindow(props: {
         description: e.message,
       }),
   });
+
+  // Set initial message on mount
+  useEffect(() => {
+    if (props.initialMessage && chat.messages.length === 0) {
+      chat.setMessages([createTextMessage("initial", "assistant", props.initialMessage)]);
+    }
+  }, []);
 
   async function sendMessage(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -337,7 +345,7 @@ export function ChatWindow(props: {
           onChange={(e) => setInputValue(e.target.value)}
           onSubmit={sendMessage}
           loading={chat.status === "streaming" || intermediateStepsLoading}
-          placeholder={props.placeholder ?? "What's it like to be a pirate?"}
+          placeholder={props.placeholder ?? "Type your message here..."}
         >
           {props.showIngestForm && (
             <Dialog>
@@ -373,7 +381,7 @@ export function ChatWindow(props: {
                 onCheckedChange={(e) => setShowIntermediateSteps(!!e)}
               />
               <label htmlFor="show_intermediate_steps" className="text-sm">
-                Show intermediate steps
+                Show steps
               </label>
             </div>
           )}
