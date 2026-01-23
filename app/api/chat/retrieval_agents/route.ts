@@ -55,27 +55,13 @@ async function getVectorStore() {
 // Define the search tool input schema
 const searchInputSchema = z.object({
   query: z.string().describe(
-    "Primary search query for Canadian tax documents. Be specific. Include relevant terms and context (tax year, taxpayer type, location, situational factors, tax act sections, CRA references, or precise tax concepts)."
+    "Primary search query for Canadian tax documents. Be specific and natural. Describe what the user is looking for."
   ),
-  sourceType: z
-    .enum(["CRA", "ITA", "ETA", "tax-law", "provincial", "all"])
-    .optional()
-    .describe(
-      "Filter by document source: CRA (CRA publications/folios), ITA (Income Tax Act), ETA (Excise Tax Act), case-law (Tax Court decisions), provincial (provincial tax rules), or all sources."
-    ),
-  taxYear: z
-    .string()
-    .optional()
-    .describe("Relevant tax year if the query is time-sensitive (e.g., '2024')."),
-  taxpayerType: z
-    .enum(["individual", "corporation", "trust", "partnership", "any"])
-    .optional()
-    .describe("The type of taxpayer the query relates to, if applicable."),
   keywords: z
     .array(z.string())
     .optional()
     .describe(
-      "Additional specific keywords to boost relevance (section numbers, defined terms, or case names)."
+      "Additional terms to boost relevance: tax years (e.g., '2024'), taxpayer types (individual, corporation, trust, partnership), source types (CRA, ITA, ETA), section numbers, defined terms, or case references."
     ),
 });
 
@@ -84,20 +70,30 @@ const createSearchDocsTool = (vectorStore: QdrantVectorStore) =>
   tool({
     description: "Search the Canadian tax document database",
     inputSchema: zodSchema(searchInputSchema),
-    execute: async ({ query, sourceType, taxYear, taxpayerType, keywords }) => {
-      // Build enhanced query with optional parameters
+    execute: async ({ query, keywords }) => {
+      // Build search query with optional keywords
       const queryParts = [query];
-      if (sourceType && sourceType !== "all") queryParts.push(sourceType);
-      if (taxYear) queryParts.push(taxYear);
-      if (taxpayerType && taxpayerType !== "any") queryParts.push(taxpayerType);
       if (keywords?.length) queryParts.push(...keywords);
 
-      const enhancedQuery = queryParts.join(" ");
-      const docs = await vectorStore.similaritySearch(enhancedQuery, 3);
+      const searchQuery = queryParts.join(" ");
+      const docs = await vectorStore.similaritySearch(searchQuery, 3);
 
-      // Include enhanced query in output for transparency
-      const results = docs.map((d) => d.pageContent).join("\n\n");
-      return `[Query: ${enhancedQuery}]\n\n${results}`;
+      // Format results with metadata (title, URL, chunk info)
+      const results = docs.map((d, i) => {
+        const title = d.metadata?.title || "Untitled";
+        const url = d.metadata?.url || null;
+        const chunkInfo = d.metadata?.chunk_index !== undefined
+          ? `(chunk ${d.metadata.chunk_index + 1}/${d.metadata.total_chunks})`
+          : "";
+
+        const header = url
+          ? `[${title}](${url}) ${chunkInfo}`
+          : `${title} ${chunkInfo}`;
+
+        return `### Source ${i + 1}: ${header}\n${d.pageContent}`;
+      }).join("\n\n---\n\n");
+
+      return `[Query: ${searchQuery}]\n\n${results}`;
     },
   });
 

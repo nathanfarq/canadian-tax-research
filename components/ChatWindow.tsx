@@ -76,7 +76,7 @@ export function ChatInput(props: {
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
   onStop?: () => void;
   value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   loading?: boolean;
   placeholder?: string;
   children?: ReactNode;
@@ -99,11 +99,26 @@ export function ChatInput(props: {
       className={cn("flex w-full flex-col", props.className)}
     >
       <div className="border border-input bg-secondary rounded-lg flex flex-col gap-2 max-w-[768px] w-full mx-auto">
-        <input
+        <textarea
           value={props.value}
           placeholder={props.placeholder}
           onChange={props.onChange}
-          className="border-none outline-none bg-transparent p-4"
+          rows={1}
+          onInput={(e) => {
+            const target = e.target as HTMLTextAreaElement;
+            target.style.height = "auto";
+            const lineHeight = 24;
+            const maxHeight = lineHeight * 5;
+            target.style.height = `${Math.min(target.scrollHeight, maxHeight)}px`;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+          className="border-none outline-none bg-transparent p-4 resize-none overflow-y-auto"
+          style={{ maxHeight: "120px" }}
         />
 
         <div className="flex justify-between ml-4 mr-2 mb-2">
