@@ -76,7 +76,7 @@ export function ChatInput(props: {
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
   onStop?: () => void;
   value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   loading?: boolean;
   placeholder?: string;
   children?: ReactNode;
@@ -99,11 +99,26 @@ export function ChatInput(props: {
       className={cn("flex w-full flex-col", props.className)}
     >
       <div className="border border-input bg-secondary rounded-lg flex flex-col gap-2 max-w-[768px] w-full mx-auto">
-        <input
+        <textarea
           value={props.value}
           placeholder={props.placeholder}
           onChange={props.onChange}
-          className="border-none outline-none bg-transparent p-4"
+          rows={1}
+          onInput={(e) => {
+            const target = e.target as HTMLTextAreaElement;
+            target.style.height = "auto";
+            const lineHeight = 24;
+            const maxHeight = lineHeight * 5;
+            target.style.height = `${Math.min(target.scrollHeight, maxHeight)}px`;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+          className="border-none outline-none bg-transparent p-4 resize-none overflow-y-auto"
+          style={{ maxHeight: "120px" }}
         />
 
         <div className="flex justify-between ml-4 mr-2 mb-2">
@@ -176,7 +191,7 @@ export function ChatLayout(props: { content: ReactNode; footer: ReactNode }) {
         contentClassName="py-8 px-2"
         content={props.content}
         footer={
-          <div className="sticky bottom-8 px-2">
+          <div className="sticky bottom-0 px-2 pb-8 pt-4 bg-gradient-to-t from-background from-80% to-transparent">
             <ScrollToBottom className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4" />
             {props.footer}
           </div>
@@ -282,31 +297,32 @@ export function ChatWindow(props: {
     const responseMessages: LangChainMessage[] = json.messages;
 
     // Represent intermediate steps as system messages for display purposes
-    // TODO: Add proper support for tool messages
-    const toolCallMessages = responseMessages.filter(
-      (responseMessage: LangChainMessage) => {
-        return (
-          (responseMessage.role === "assistant" &&
-            !!responseMessage.tool_calls?.length) ||
-          responseMessage.role === "tool"
-        );
-      },
-    );
-
+    // Explicitly pair assistant tool calls with their tool responses
     const intermediateStepMessages: UIMessage[] = [];
-    for (let i = 0; i < toolCallMessages.length; i += 2) {
-      const aiMessage = toolCallMessages[i];
-      const toolMessage = toolCallMessages[i + 1];
-      intermediateStepMessages.push(
-        createTextMessage(
-          (messagesWithUserReply.length + i / 2).toString(),
-          "system",
-          JSON.stringify({
-            action: aiMessage.tool_calls?.[0],
-            observation: toolMessage?.content,
-          })
-        )
-      );
+    let stepIndex = 0;
+
+    for (let i = 0; i < responseMessages.length; i++) {
+      const message = responseMessages[i];
+
+      // Find assistant messages with tool calls
+      if (message.role === "assistant" && message.tool_calls?.length) {
+        // Look for the next tool message as the response
+        const toolMessage = responseMessages[i + 1];
+
+        if (toolMessage?.role === "tool") {
+          intermediateStepMessages.push(
+            createTextMessage(
+              (messagesWithUserReply.length + stepIndex).toString(),
+              "system",
+              JSON.stringify({
+                action: message.tool_calls[0],
+                observation: toolMessage.content,
+              })
+            )
+          );
+          stepIndex++;
+        }
+      }
     }
     const newMessages = [...messagesWithUserReply];
     for (const message of intermediateStepMessages) {
