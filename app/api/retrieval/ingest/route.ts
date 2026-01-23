@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { v4 as uuidv4 } from "uuid";
 
 export const runtime = "nodejs";
+
+const COLLECTION_NAME = "tax_documents";
+const embeddings = new OpenAIEmbeddings({ model: "text-embedding-3-small" });
 
 const MAX_RETRIES = 2;
 
@@ -13,8 +16,8 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       return await fn();
-    } catch (e: any) {
-      lastError = e;
+    } catch (e: unknown) {
+      lastError = e as Error;
       if (attempt < MAX_RETRIES - 1) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
@@ -23,18 +26,28 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   throw lastError;
 }
 
-// Before running, follow set-up instructions at
-// https://docs.langchain.com/oss/javascript/integrations/vectorstores/qdrant
+// Get the underlying Qdrant client from QdrantVectorStore
+async function getQdrantClient() {
+  const vectorStore = await QdrantVectorStore.fromExistingCollection(
+    embeddings,
+    {
+      url: process.env.QDRANT_URL!,
+      apiKey: process.env.QDRANT_API_KEY,
+      collectionName: COLLECTION_NAME,
+    }
+  );
+  return vectorStore.client;
+}
+
 /**
  * This handler takes input text, splits it into chunks, and embeds those chunks
- * into a vector store for later retrieval. See the following docs for more information:
+ * into a vector store for later retrieval using a flat payload structure.
  *
- * https://js.langchain.com/v0.2/docs/how_to/recursive_text_splitter
- * https://docs.langchain.com/oss/javascript/integrations/vectorstores/qdrant
+ * Expected body: { text: string, title?: string, url?: string, source?: string, doc_type?: string }
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const text = body.text;
+  const { text, title, url, source, doc_type } = body;
 
   if (process.env.NEXT_PUBLIC_DEMO === "true") {
     return NextResponse.json(
@@ -48,6 +61,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (!text) {
+    return NextResponse.json(
+      { error: "Missing required field: text" },
+      { status: 400 },
+    );
+  }
+
   try {
     const splitter = RecursiveCharacterTextSplitter.fromLanguage("markdown", {
       chunkSize: 256,
@@ -55,21 +75,51 @@ export async function POST(req: NextRequest) {
     });
 
     const splitDocuments = await splitter.createDocuments([text]);
+    const totalChunks = splitDocuments.length;
 
-    await withRetry(async () => {
-      await QdrantVectorStore.fromDocuments(
-        splitDocuments,
-        new OpenAIEmbeddings({ model: "text-embedding-3-small" }),
-        {
-          url: process.env.QDRANT_URL!,
-          apiKey: process.env.QDRANT_API_KEY,
-          collectionName: "taxbuddy-documents",
-        },
-      );
+    // Generate embeddings for all chunks
+    const chunkTexts = splitDocuments.map((doc) => doc.pageContent);
+    const vectors = await embeddings.embedDocuments(chunkTexts);
+
+    // Build points with flat payload structure
+    const points = splitDocuments.map((doc, index) => {
+      const payload: Record<string, unknown> = {
+        chunk_text: doc.pageContent,
+        chunk_index: index,
+        total_chunks: totalChunks,
+        scraped_at: new Date().toISOString(),
+      };
+
+      // Only add optional fields if provided
+      if (title) payload.title = title;
+      if (url) payload.url = url;
+      if (source) payload.source = source;
+      if (doc_type) payload.doc_type = doc_type;
+
+      return {
+        id: uuidv4(),
+        vector: vectors[index],
+        payload,
+      };
     });
 
-    return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
+    // Get Qdrant client and upsert points directly
+    const qdrantClient = await getQdrantClient();
+
+    await withRetry(async () => {
+      await qdrantClient.upsert(COLLECTION_NAME, {
+        wait: true,
+        points,
+      });
+    });
+
+    return NextResponse.json(
+      { ok: true, chunks_ingested: totalChunks },
+      { status: 200 }
+    );
+  } catch (e: unknown) {
+    const error = e as Error;
+    console.error("[INGEST] Error:", error.message);
     return NextResponse.json(
       {
         error:

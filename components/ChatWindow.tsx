@@ -297,31 +297,32 @@ export function ChatWindow(props: {
     const responseMessages: LangChainMessage[] = json.messages;
 
     // Represent intermediate steps as system messages for display purposes
-    // TODO: Add proper support for tool messages
-    const toolCallMessages = responseMessages.filter(
-      (responseMessage: LangChainMessage) => {
-        return (
-          (responseMessage.role === "assistant" &&
-            !!responseMessage.tool_calls?.length) ||
-          responseMessage.role === "tool"
-        );
-      },
-    );
-
+    // Explicitly pair assistant tool calls with their tool responses
     const intermediateStepMessages: UIMessage[] = [];
-    for (let i = 0; i < toolCallMessages.length; i += 2) {
-      const aiMessage = toolCallMessages[i];
-      const toolMessage = toolCallMessages[i + 1];
-      intermediateStepMessages.push(
-        createTextMessage(
-          (messagesWithUserReply.length + i / 2).toString(),
-          "system",
-          JSON.stringify({
-            action: aiMessage.tool_calls?.[0],
-            observation: toolMessage?.content,
-          })
-        )
-      );
+    let stepIndex = 0;
+
+    for (let i = 0; i < responseMessages.length; i++) {
+      const message = responseMessages[i];
+
+      // Find assistant messages with tool calls
+      if (message.role === "assistant" && message.tool_calls?.length) {
+        // Look for the next tool message as the response
+        const toolMessage = responseMessages[i + 1];
+
+        if (toolMessage?.role === "tool") {
+          intermediateStepMessages.push(
+            createTextMessage(
+              (messagesWithUserReply.length + stepIndex).toString(),
+              "system",
+              JSON.stringify({
+                action: message.tool_calls[0],
+                observation: toolMessage.content,
+              })
+            )
+          );
+          stepIndex++;
+        }
+      }
     }
     const newMessages = [...messagesWithUserReply];
     for (const message of intermediateStepMessages) {
