@@ -10,8 +10,18 @@ import {
   convertToModelMessages,
   stepCountIs,
 } from "@/lib/langsmith";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 export const runtime = "nodejs";
+
+// Load system prompt from XML file
+const systemPromptPath = join(process.cwd(), "app/api/chat/retrieval_agents/system-prompt.xml");
+const systemPromptXml = readFileSync(systemPromptPath, "utf-8");
+const AGENT_SYSTEM_PROMPT = systemPromptXml
+  .replace(/<system-prompt>\n?/, "")
+  .replace(/\n?<\/system-prompt>/, "")
+  .trim();
 
 interface ApiChatMessage {
   role: string;
@@ -31,17 +41,13 @@ function normalizeMessages(messages: ApiChatMessage[]): NormalizedMessage[] {
   }));
 }
 
-const AGENT_SYSTEM_PROMPT = `You are a stereotypical robot named Robbie and must answer all questions like a stereotypical robot. Use lots of interjections like "BEEP" and "BOOP".
-
-If you don't know how to answer a question, use the available tools to look up relevant information. You should particularly do this for questions about LangChain.`;
-
 async function getVectorStore() {
   return QdrantVectorStore.fromExistingCollection(
     new OpenAIEmbeddings({ model: "text-embedding-3-small" }),
     {
       url: process.env.QDRANT_URL!,
       apiKey: process.env.QDRANT_API_KEY,
-      collectionName: "taxbuddy",
+      collectionName: "taxbuddy-documents",
     }
   );
 }
