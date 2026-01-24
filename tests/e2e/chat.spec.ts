@@ -11,7 +11,7 @@ test.describe("TaxBuddy Chat", () => {
   test("should have chat input with placeholder", async ({ page }) => {
     await page.goto("/");
 
-    const input = page.getByPlaceholderText("Ask a tax question...");
+    const input = page.getByPlaceholder("Ask a tax question...");
     await expect(input).toBeVisible();
   });
 
@@ -39,7 +39,7 @@ test.describe("TaxBuddy Chat", () => {
   test("should allow typing in chat input", async ({ page }) => {
     await page.goto("/");
 
-    const input = page.getByPlaceholderText("Ask a tax question...");
+    const input = page.getByPlaceholder("Ask a tax question...");
     await input.fill("What is the RRSP contribution limit?");
 
     await expect(input).toHaveValue("What is the RRSP contribution limit?");
@@ -65,7 +65,7 @@ test.describe("TaxBuddy Chat", () => {
 
     // Check for disclaimer text
     await expect(
-      page.getByText(/verify all information against official CRA sources/)
+      page.getByText(/verify all information with official CRA sources/)
     ).toBeVisible();
   });
 });
