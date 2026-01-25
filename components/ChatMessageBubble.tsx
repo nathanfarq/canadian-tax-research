@@ -31,7 +31,7 @@ export function ChatMessageBubble(props: {
       {props.message.role !== "user" && (
         <div className="mr-4 -mt-2 w-10 h-10 flex-shrink-0 flex items-center justify-center">
           <Image
-            src="/images/20260117-logo1-icon-transparent.png"
+            src="/images/20260125-logo2-icon-transparent.png"
             alt="TaxBuddy"
             width={40}
             height={40}

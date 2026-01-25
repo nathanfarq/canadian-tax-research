@@ -5,7 +5,7 @@ import { NuqsAdapter } from "nuqs/adapters/next";
 const Logo = () => (
   <a href="https://taxbuddy.online/">
     <img
-      src="/images/20260117-logo1-transparent.png"
+      src="/images/20260125-logo2-cropped-transparent.png"
       alt="TaxBuddy"
       className="h-12"
     />
@@ -21,7 +21,7 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <title>TaxBuddy Chat</title>
-        <link rel="shortcut icon" href="/images/favicon.ico" />
+        <link rel="shortcut icon" href="/images/20260125-logo2-georgia5c5c99.ico" />
         <meta
           name="description"
           content="TaxBuddy is your Canadian tax research assistant"

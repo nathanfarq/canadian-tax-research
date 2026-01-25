@@ -5,7 +5,7 @@ export function GuideInfoBox(props: { children: ReactNode }) {
     <div className="max-w-[768px] w-full overflow-hidden flex-col gap-5 flex text-md my-16 mx-auto">
       <div className="flex justify-center">
         <img
-          src="/images/20260117-logo1-transparent.png"
+          src="/images/20260125-logo2-cropped-transparent.png"
           alt="TaxBuddy"
           className="h-16"
         />
