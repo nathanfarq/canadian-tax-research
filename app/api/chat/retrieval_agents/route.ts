@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
     if (!returnIntermediateSteps) {
       // Stream response with tool calling
       const result = streamText({
-        model: openai("gpt-4o-mini"),
+        model: openai("gpt-4o"),
         system: AGENT_SYSTEM_PROMPT,
         messages,
         tools: { searchDocs },
@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
     } else {
       // Return intermediate steps for debugging/display
       const result = streamText({
-        model: openai("gpt-4o-mini"),
+        model: openai("gpt-4o"),
         system: AGENT_SYSTEM_PROMPT,
         messages,
         tools: { searchDocs },
