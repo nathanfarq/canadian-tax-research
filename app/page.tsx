@@ -29,6 +29,13 @@ export default function Home() {
     setCurrentConversationId(null);
   }, []);
 
+  const handleDeleteConversation = useCallback((deletedId: string) => {
+    // If the deleted conversation was currently selected, reset to new chat
+    if (deletedId === currentConversationId) {
+      setCurrentConversationId(null);
+    }
+  }, [currentConversationId]);
+
   const handleConversationChange = useCallback((id: string | null) => {
     if (id) {
       setCurrentConversationId(id);
@@ -43,6 +50,7 @@ export default function Home() {
         currentConversationId={currentConversationId ?? undefined}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        onDeleteConversation={handleDeleteConversation}
       />
       <div className="flex-1 relative">
         <ChatWindow

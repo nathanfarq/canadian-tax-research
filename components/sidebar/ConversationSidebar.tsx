@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { cn } from "@/utils/cn";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -11,15 +12,17 @@ interface ConversationSidebarProps {
   currentConversationId?: string;
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
+  onDeleteConversation?: (id: string) => void;
 }
 
 export function ConversationSidebar({
   currentConversationId,
   onSelectConversation,
   onNewConversation,
+  onDeleteConversation,
 }: ConversationSidebarProps) {
   const { isGuest, isLoading: authLoading } = useAuth();
-  const { conversations, isLoading: conversationsLoading } = useConversations();
+  const { conversations, isLoading: conversationsLoading, refetch } = useConversations();
   const [isCollapsed, setIsCollapsed] = useState(true);
 
   // Default: collapsed on mobile, expanded on desktop
@@ -32,6 +35,59 @@ export function ConversationSidebar({
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      const response = await fetch(`/api/conversations/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete conversation");
+      }
+
+      // Notify parent if this was the active conversation
+      if (id === currentConversationId) {
+        onDeleteConversation?.(id);
+      }
+
+      // Refetch conversations to update the list
+      await refetch();
+
+      toast.success("Conversation deleted");
+    } catch (error) {
+      toast.error("Failed to delete conversation", {
+        description: error instanceof Error ? error.message : "An error occurred",
+      });
+      throw error; // Re-throw so ConversationItem knows it failed
+    }
+  }, [currentConversationId, onDeleteConversation, refetch]);
+
+  const handleRename = useCallback(async (id: string, newTitle: string) => {
+    try {
+      const response = await fetch(`/api/conversations/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title: newTitle }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to rename conversation");
+      }
+
+      // Refetch conversations to update the list
+      await refetch();
+
+      toast.success("Conversation renamed");
+    } catch (error) {
+      toast.error("Failed to rename conversation", {
+        description: error instanceof Error ? error.message : "An error occurred",
+      });
+      throw error; // Re-throw so ConversationItem knows it failed
+    }
+  }, [refetch]);
 
   const isLoading = authLoading || conversationsLoading;
 
@@ -100,6 +156,8 @@ export function ConversationSidebar({
                   updatedAt={conversation.updated_at}
                   isActive={conversation.id === currentConversationId}
                   onClick={() => onSelectConversation(conversation.id)}
+                  onDelete={handleDelete}
+                  onRename={handleRename}
                 />
               ))}
             </div>
