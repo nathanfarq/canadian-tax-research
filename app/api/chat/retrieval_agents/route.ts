@@ -12,6 +12,8 @@ import {
 } from "@/lib/langsmith";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { createClient } from "@/lib/supabase/server";
+import { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -33,6 +35,43 @@ type NormalizedMessage = {
   role: "system" | "user" | "assistant";
   parts: Array<{ type: "text"; text: string }>;
 };
+
+interface ChatRequestBody {
+  messages?: ApiChatMessage[];
+  conversation_id?: string;
+  show_intermediate_steps?: boolean;
+}
+
+// Persist a message to Supabase (fire-and-forget, logs errors but doesn't throw)
+async function persistMessage(
+  supabase: SupabaseClient,
+  conversationId: string,
+  role: "user" | "assistant",
+  content: string
+): Promise<void> {
+  try {
+    const { error: msgError } = await supabase
+      .from("messages")
+      .insert({ conversation_id: conversationId, role, content });
+
+    if (msgError) {
+      console.error("[PERSIST] Failed to save message:", msgError.message);
+      return;
+    }
+
+    // Update conversation's updated_at timestamp
+    const { error: updateError } = await supabase
+      .from("conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", conversationId);
+
+    if (updateError) {
+      console.error("[PERSIST] Failed to update conversation timestamp:", updateError.message);
+    }
+  } catch (err) {
+    console.error("[PERSIST] Unexpected error:", err);
+  }
+}
 
 function normalizeMessages(messages: ApiChatMessage[]): NormalizedMessage[] {
   return messages.map((m) => ({
@@ -142,14 +181,50 @@ const createSearchDocsTool = (qdrantClient: Awaited<ReturnType<typeof getQdrantC
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body: ChatRequestBody = await req.json();
     const returnIntermediateSteps = body.show_intermediate_steps;
+    let conversationId = body.conversation_id;
+
+    // Authenticate user (optional - guests can still use chat)
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    const isAuthenticated = !!user;
 
     // Filter out system messages (intermediate steps displayed in UI)
     const filteredMessages = (body.messages ?? []).filter(
       (message: ApiChatMessage) =>
         message.role === "user" || message.role === "assistant"
     );
+
+    // Get the latest user message for persistence
+    const latestUserMessage = [...filteredMessages]
+      .reverse()
+      .find((m) => m.role === "user");
+    const userMessageContent = latestUserMessage?.content ?? "";
+
+    // For authenticated users: handle conversation persistence
+    if (isAuthenticated && user) {
+      // Create new conversation if none provided
+      if (!conversationId) {
+        const title = userMessageContent.substring(0, 50) + (userMessageContent.length > 50 ? "..." : "");
+        const { data: newConv, error: convError } = await supabase
+          .from("conversations")
+          .insert({ user_id: user.id, title: title || null })
+          .select("id")
+          .single();
+
+        if (convError) {
+          console.error("[PERSIST] Failed to create conversation:", convError.message);
+        } else {
+          conversationId = newConv.id;
+        }
+      }
+
+      // Save user message (fire-and-forget)
+      if (conversationId && userMessageContent) {
+        persistMessage(supabase, conversationId, "user", userMessageContent);
+      }
+    }
 
     // Normalize messages to UIMessage format before conversion
     const normalizedMessages = normalizeMessages(filteredMessages);
@@ -158,6 +233,12 @@ export async function POST(req: NextRequest) {
     // Initialize Qdrant client and create search tool
     const qdrantClient = await getQdrantClient();
     const searchDocs = createSearchDocsTool(qdrantClient);
+
+    // Prepare response headers with conversation ID
+    const responseHeaders: HeadersInit = {};
+    if (conversationId) {
+      responseHeaders["X-Conversation-ID"] = conversationId;
+    }
 
     if (!returnIntermediateSteps) {
       // Stream response with tool calling
@@ -168,9 +249,15 @@ export async function POST(req: NextRequest) {
         tools: { searchDocs },
         stopWhen: stepCountIs(5),
         temperature: 0.2,
+        onFinish: async ({ text }) => {
+          // Save assistant response for authenticated users
+          if (isAuthenticated && conversationId && text) {
+            await persistMessage(supabase, conversationId, "assistant", text);
+          }
+        },
       });
 
-      return result.toTextStreamResponse();
+      return result.toTextStreamResponse({ headers: responseHeaders });
     } else {
       // Return intermediate steps for debugging/display
       const result = streamText({
@@ -218,7 +305,21 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      return NextResponse.json({ messages: allSteps }, { status: 200 });
+      // Extract final assistant response for persistence
+      const finalAssistantContent = allSteps
+        .filter((s) => s.role === "assistant" && !s.tool_calls && s.content)
+        .map((s) => s.content)
+        .join("");
+
+      // Save assistant response for authenticated users
+      if (isAuthenticated && conversationId && finalAssistantContent) {
+        persistMessage(supabase, conversationId, "assistant", finalAssistantContent);
+      }
+
+      return NextResponse.json(
+        { messages: allSteps, conversation_id: conversationId },
+        { status: 200, headers: responseHeaders }
+      );
     }
   } catch (e: unknown) {
     const error = e as { message?: string; status?: number };
