@@ -44,8 +44,10 @@ export async function executeTool(
     let chain: Runnable;
 
     if (options?.wso) {
+      // Use type cast to work around zod v3/v4 type conflicts with withStructuredOutput
+      const weatherSchema: any = Weather;
       chain = prompt.pipe(
-        llm.withStructuredOutput(Weather, {
+        llm.withStructuredOutput(weatherSchema, {
           name: "get_weather",
         }),
       );
