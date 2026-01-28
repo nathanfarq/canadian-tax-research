@@ -1,4 +1,9 @@
+"use client";
+
+import { useState, useCallback } from "react";
 import { ChatWindow } from "@/components/ChatWindow";
+import { ConversationSidebar } from "@/components/sidebar/ConversationSidebar";
+import { useConversations } from "@/hooks/useConversations";
 
 const WELCOME_MESSAGE = `Hi, I'm TaxBuddy! Your Canadian tax research assistant.
 
@@ -13,12 +18,42 @@ TaxBuddy is an AI research assistant that provides general Canadian tax informat
 What can I help you with today?`;
 
 export default function Home() {
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const { refetch: refetchConversations } = useConversations();
+
+  const handleSelectConversation = useCallback((id: string) => {
+    setCurrentConversationId(id);
+  }, []);
+
+  const handleNewConversation = useCallback(() => {
+    setCurrentConversationId(null);
+  }, []);
+
+  const handleConversationChange = useCallback((id: string | null) => {
+    if (id) {
+      setCurrentConversationId(id);
+      // Refetch sidebar to show new conversation
+      refetchConversations();
+    }
+  }, [refetchConversations]);
+
   return (
-    <ChatWindow
-      endpoint="api/chat/retrieval_agents"
-      placeholder="Ask a tax question..."
-      showIntermediateStepsToggle={true}
-      initialMessage={WELCOME_MESSAGE}
-    />
+    <div className="flex h-full">
+      <ConversationSidebar
+        currentConversationId={currentConversationId ?? undefined}
+        onSelectConversation={handleSelectConversation}
+        onNewConversation={handleNewConversation}
+      />
+      <div className="flex-1 relative">
+        <ChatWindow
+          endpoint="api/chat/retrieval_agents"
+          placeholder="Ask a tax question..."
+          showIntermediateStepsToggle={true}
+          initialMessage={WELCOME_MESSAGE}
+          conversationId={currentConversationId}
+          onConversationChange={handleConversationChange}
+        />
+      </div>
+    </div>
   );
 }

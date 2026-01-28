@@ -2,7 +2,7 @@
 
 import { type UIMessage, useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport } from "ai";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { toast } from "sonner";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
@@ -22,6 +22,7 @@ import {
   DialogTrigger,
 } from "./ui/dialog";
 import { cn } from "@/utils/cn";
+import { useConversationMessages } from "@/hooks/useConversationMessages";
 
 // Helper to extract text content from UIMessage parts
 function getMessageText(message: UIMessage): string {
@@ -209,6 +210,8 @@ export function ChatWindow(props: {
   showIngestForm?: boolean;
   showIntermediateStepsToggle?: boolean;
   initialMessage?: string;
+  conversationId?: string | null;
+  onConversationChange?: (id: string | null) => void;
 }) {
   const [showIntermediateSteps, setShowIntermediateSteps] = useState(
     !!props.showIntermediateStepsToggle,
@@ -221,6 +224,15 @@ export function ChatWindow(props: {
   >({});
 
   const [inputValue, setInputValue] = useState("");
+
+  // Track current conversation ID for sending with requests
+  const currentConversationIdRef = useRef<string | null>(props.conversationId ?? null);
+
+  // Fetch conversation messages when conversationId changes
+  const {
+    messages: loadedMessages,
+    isLoading: isLoadingConversation,
+  } = useConversationMessages(props.conversationId);
 
   // Create transport for the chat API endpoint
   const transport = useMemo(
@@ -236,20 +248,104 @@ export function ChatWindow(props: {
       }),
   });
 
-  // Set initial message on mount
+  // Update ref when prop changes
   useEffect(() => {
-    if (props.initialMessage && chat.messages.length === 0) {
+    currentConversationIdRef.current = props.conversationId ?? null;
+  }, [props.conversationId]);
+
+  // Load messages when conversation changes
+  useEffect(() => {
+    if (props.conversationId && loadedMessages.length > 0) {
+      // Convert loaded messages to UIMessage format
+      const uiMessages: UIMessage[] = loadedMessages.map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        parts: msg.parts,
+      }));
+      chat.setMessages(uiMessages);
+    } else if (props.conversationId === null) {
+      // New chat - clear messages and show welcome
+      chat.setMessages([]);
+      if (props.initialMessage) {
+        chat.setMessages([createTextMessage("initial", "assistant", props.initialMessage)]);
+      }
+    }
+  }, [props.conversationId, loadedMessages]);
+
+  // Set initial message on mount (only for new chats)
+  useEffect(() => {
+    if (props.initialMessage && chat.messages.length === 0 && !props.conversationId) {
       chat.setMessages([createTextMessage("initial", "assistant", props.initialMessage)]);
     }
   }, []);
+
+  // Helper to handle conversation ID from response
+  function handleConversationIdFromResponse(response: Response) {
+    const newConversationId = response.headers.get("X-Conversation-ID");
+    if (newConversationId && newConversationId !== currentConversationIdRef.current) {
+      currentConversationIdRef.current = newConversationId;
+      props.onConversationChange?.(newConversationId);
+    }
+  }
 
   async function sendMessage(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (chat.status === "streaming" || intermediateStepsLoading) return;
 
     if (!showIntermediateSteps) {
-      chat.sendMessage({ text: inputValue });
+      // For streaming mode, we need to intercept the response to get the conversation ID
+      // The useChat hook handles streaming, but we need the header
+      const messagesForApi = [...chat.messages, createTextMessage("temp", "user", inputValue)].map((m) => ({
+        role: m.role,
+        content: getMessageText(m),
+      }));
+
+      // Make a preflight-style request to get conversation ID, then let useChat handle streaming
+      // Actually, we need to modify the transport or use fetch directly
+      // For now, send via fetch to capture headers, then update chat state
+      const response = await fetch(props.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesForApi,
+          conversation_id: currentConversationIdRef.current,
+        }),
+      });
+
+      handleConversationIdFromResponse(response);
+
+      if (!response.ok) {
+        const json = await response.json();
+        toast.error(`Error while processing your request`, { description: json.error });
+        return;
+      }
+
+      // Read the stream and update messages
+      const reader = response.body?.getReader();
+      if (!reader) return;
+
+      const userMessage = createTextMessage(chat.messages.length.toString(), "user", inputValue);
+      const newMessages = [...chat.messages, userMessage];
+      chat.setMessages(newMessages);
       setInputValue("");
+
+      let assistantContent = "";
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        assistantContent += chunk;
+
+        // Update assistant message in real-time
+        chat.setMessages([
+          ...newMessages,
+          createTextMessage((newMessages.length).toString(), "assistant", assistantContent),
+        ]);
+      }
+
       return;
     }
 
@@ -273,11 +369,16 @@ export function ChatWindow(props: {
 
     const response = await fetch(props.endpoint, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         messages: apiMessages,
+        conversation_id: currentConversationIdRef.current,
         show_intermediate_steps: true,
       }),
     });
+
+    handleConversationIdFromResponse(response);
+
     const json = await response.json();
     setIntermediateStepsLoading(false);
 
@@ -339,6 +440,23 @@ export function ChatWindow(props: {
       ...newMessages,
       createTextMessage(newMessages.length.toString(), "assistant", lastResponseContent),
     ]);
+  }
+
+  // Show loading state when fetching conversation
+  if (isLoadingConversation && props.conversationId) {
+    return (
+      <ChatLayout
+        content={
+          <div className="flex items-center justify-center h-full">
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <LoaderCircle className="h-8 w-8 animate-spin" />
+              <span>Loading conversation...</span>
+            </div>
+          </div>
+        }
+        footer={<div />}
+      />
+    );
   }
 
   return (
