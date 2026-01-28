@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { setGuestSession } from "@/lib/auth/guest";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -60,6 +61,11 @@ export function AuthForm() {
     setMode(mode === "login" ? "signup" : "login");
     setError(null);
     setMessage(null);
+  };
+
+  const handleGuestAccess = () => {
+    setGuestSession();
+    router.push("/");
   };
 
   return (
@@ -127,6 +133,30 @@ export function AuthForm() {
             ? "Need an account? Sign up"
             : "Have an account? Log in"}
         </button>
+      </div>
+
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-background px-2 text-muted-foreground">Or</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={handleGuestAccess}
+          disabled={isLoading}
+        >
+          Continue as Guest
+        </Button>
+        <p className="text-xs text-center text-muted-foreground">
+          Guest data will not be saved between sessions
+        </p>
       </div>
     </div>
   );
