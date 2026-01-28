@@ -6,6 +6,7 @@ import { OpenAIEmbeddings } from "@langchain/openai";
 import {
   openai,
   streamText,
+  generateText,
   tool,
   convertToModelMessages,
   stepCountIs,
@@ -14,6 +15,21 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { createClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
+import {
+  getConversationMessages,
+  getConversationData,
+  addMessageToConversation,
+  hydrateFromMessages,
+  hasConversation,
+  summarizeAndTrimMessages,
+  ChatMessage,
+} from "@/lib/memory/conversationMemory";
+import {
+  GUEST_SESSION_KEY,
+  MAX_MEMORY_MESSAGES,
+  MESSAGES_TO_KEEP,
+  SUMMARIZATION_THRESHOLD,
+} from "@/lib/memory/memoryCache";
 
 export const runtime = "nodejs";
 
@@ -82,6 +98,97 @@ function normalizeMessages(messages: ApiChatMessage[]): NormalizedMessage[] {
 
 const COLLECTION_NAME = "tax_documents";
 const embeddings = new OpenAIEmbeddings({ model: "text-embedding-3-small" });
+
+/**
+ * Gets the memory key for a conversation.
+ * Uses conversation_id for authenticated users, guest key for others.
+ */
+function getMemoryKey(conversationId: string | undefined, isAuthenticated: boolean): string {
+  return isAuthenticated && conversationId ? conversationId : GUEST_SESSION_KEY;
+}
+
+/**
+ * Ensures memory is hydrated from Supabase for authenticated users.
+ */
+async function ensureMemoryHydrated(
+  memoryKey: string,
+  isAuthenticated: boolean,
+  supabase: SupabaseClient
+): Promise<void> {
+  // Skip hydration for guests or if already hydrated
+  if (!isAuthenticated || memoryKey === GUEST_SESSION_KEY) return;
+  if (await hasConversation(memoryKey)) return;
+
+  try {
+    const { data: messages, error } = await supabase
+      .from("messages")
+      .select("role, content")
+      .eq("conversation_id", memoryKey)
+      .order("created_at", { ascending: true });
+
+    if (!error && messages?.length) {
+      await hydrateFromMessages(memoryKey, messages);
+      console.log(`[MEMORY] Hydrated ${messages.length} messages for ${memoryKey}`);
+    }
+  } catch (err) {
+    console.error("[MEMORY] Hydration failed:", err);
+  }
+}
+
+/**
+ * Creates a summarizer function that uses OpenAI to summarize conversation messages.
+ */
+async function createConversationSummary(
+  messages: ChatMessage[],
+  existingSummary?: string
+): Promise<string> {
+  // Format messages for summarization
+  const messagesText = messages
+    .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+    .join("\n\n");
+
+  let summaryPrompt: string;
+  if (existingSummary) {
+    summaryPrompt = `This is a summary of the conversation to date:
+${existingSummary}
+
+Here are new messages from the conversation:
+${messagesText}
+
+Extend the summary by incorporating the new messages above. Keep the summary concise but capture key topics, questions asked, and important information shared.`;
+  } else {
+    summaryPrompt = `Here is a conversation between a user and an assistant:
+${messagesText}
+
+Create a concise summary of this conversation. Capture key topics discussed, questions asked, and important information shared.`;
+  }
+
+  try {
+    const result = await generateText({
+      model: openai("gpt-4o-mini"),
+      messages: [{ role: "user", content: summaryPrompt }],
+      temperature: 0.3,
+    });
+
+    return result.text;
+  } catch (err) {
+    console.error("[SUMMARY] Failed to generate summary:", err);
+    // Return existing summary or empty string on failure
+    return existingSummary ?? "";
+  }
+}
+
+/**
+ * Checks if summarization is needed and performs it.
+ */
+async function checkAndSummarize(memoryKey: string): Promise<void> {
+  const messages = await getConversationMessages(memoryKey);
+
+  if (messages.length > SUMMARIZATION_THRESHOLD) {
+    console.log(`[MEMORY] Messages (${messages.length}) exceed threshold (${SUMMARIZATION_THRESHOLD}), summarizing...`);
+    await summarizeAndTrimMessages(memoryKey, createConversationSummary, MESSAGES_TO_KEEP);
+  }
+}
 
 // Initialize QdrantVectorStore to access the underlying Qdrant client
 async function getQdrantClient() {
@@ -226,9 +333,47 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Get memory key and ensure hydration from Supabase
+    const memoryKey = getMemoryKey(conversationId, isAuthenticated);
+    await ensureMemoryHydrated(memoryKey, isAuthenticated, supabase);
+
+    // Get conversation data including summary and messages
+    const conversationData = await getConversationData(memoryKey);
+    const historyMessages = conversationData.messages;
+    const conversationSummary = conversationData.summary;
+    const recentHistory = historyMessages.slice(-MAX_MEMORY_MESSAGES);
+
+    // Combine history with current messages, avoiding duplicates
+    // Only prepend history if current messages don't already include it
+    const currentMessagesSet = new Set(
+      filteredMessages.map((m) => `${m.role}:${m.content}`)
+    );
+    const uniqueHistory = recentHistory.filter(
+      (m) => !currentMessagesSet.has(`${m.role}:${m.content}`)
+    );
+
+    // Merge: history first, then current messages
+    const combinedMessages: ApiChatMessage[] = [
+      ...uniqueHistory.map((m) => ({ role: m.role, content: m.content })),
+      ...filteredMessages,
+    ];
+
     // Normalize messages to UIMessage format before conversion
-    const normalizedMessages = normalizeMessages(filteredMessages);
-    const messages = await convertToModelMessages(normalizedMessages);
+    const normalizedMessages = normalizeMessages(combinedMessages);
+
+    // Prepend conversation summary as a system message if available
+    // This provides context from earlier conversation without modifying the main system prompt
+    const messagesWithSummary: NormalizedMessage[] = conversationSummary
+      ? [
+          {
+            role: "system" as const,
+            parts: [{ type: "text" as const, text: `Summary of earlier conversation:\n${conversationSummary}` }],
+          },
+          ...normalizedMessages,
+        ]
+      : normalizedMessages;
+
+    const messages = await convertToModelMessages(messagesWithSummary);
 
     // Initialize Qdrant client and create search tool
     const qdrantClient = await getQdrantClient();
@@ -250,7 +395,14 @@ export async function POST(req: NextRequest) {
         stopWhen: stepCountIs(5),
         temperature: 0.2,
         onFinish: async ({ text }) => {
-          // Save assistant response for authenticated users
+          // Save to memory (always, for context continuity)
+          if (userMessageContent && text) {
+            await addMessageToConversation(memoryKey, "user", userMessageContent);
+            await addMessageToConversation(memoryKey, "assistant", text);
+            // Check if summarization is needed after adding messages
+            await checkAndSummarize(memoryKey);
+          }
+          // Save assistant response to Supabase for authenticated users
           if (isAuthenticated && conversationId && text) {
             await persistMessage(supabase, conversationId, "assistant", text);
           }
@@ -311,7 +463,14 @@ export async function POST(req: NextRequest) {
         .map((s) => s.content)
         .join("");
 
-      // Save assistant response for authenticated users
+      // Save to memory (always, for context continuity)
+      if (userMessageContent && finalAssistantContent) {
+        await addMessageToConversation(memoryKey, "user", userMessageContent);
+        await addMessageToConversation(memoryKey, "assistant", finalAssistantContent);
+        // Check if summarization is needed after adding messages
+        await checkAndSummarize(memoryKey);
+      }
+      // Save assistant response to Supabase for authenticated users
       if (isAuthenticated && conversationId && finalAssistantContent) {
         persistMessage(supabase, conversationId, "assistant", finalAssistantContent);
       }
