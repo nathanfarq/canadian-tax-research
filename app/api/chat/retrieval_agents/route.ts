@@ -58,6 +58,62 @@ interface ChatRequestBody {
   show_intermediate_steps?: boolean;
 }
 
+/**
+ * Generates a short, relevant conversation title using GPT-4-mini.
+ * Designed to be lightweight and cost-effective.
+ */
+async function generateConversationTitle(firstMessage: string): Promise<string> {
+  try {
+    const result = await generateText({
+      model: openai("gpt-4o-mini"),
+      messages: [
+        {
+          role: "user",
+          content: `Generate a very short title (max 5 words) for a conversation that starts with this message. Return ONLY the title, no quotes or punctuation at the end.
+
+Message: "${firstMessage.substring(0, 200)}"`,
+        },
+      ],
+      temperature: 0.1,
+    });
+
+    // Clean up the title (remove quotes, trim, limit length)
+    let title = result.text.trim().replace(/^["']|["']$/g, "");
+    if (title.length > 50) {
+      title = title.substring(0, 47) + "...";
+    }
+    return title || firstMessage.substring(0, 50);
+  } catch (err) {
+    console.error("[TITLE] Failed to generate title:", err);
+    // Fallback to truncated message
+    return firstMessage.substring(0, 50) + (firstMessage.length > 50 ? "..." : "");
+  }
+}
+
+/**
+ * Updates conversation title in Supabase (fire-and-forget).
+ */
+async function updateConversationTitle(
+  supabase: SupabaseClient,
+  conversationId: string,
+  title: string
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from("conversations")
+      .update({ title })
+      .eq("id", conversationId);
+
+    if (error) {
+      console.error("[TITLE] Failed to update title:", error.message);
+    } else {
+      console.log(`[TITLE] Updated conversation ${conversationId}: "${title}"`);
+    }
+  } catch (err) {
+    console.error("[TITLE] Unexpected error updating title:", err);
+  }
+}
+
 // Persist a message to Supabase (fire-and-forget, logs errors but doesn't throw)
 async function persistMessage(
   supabase: SupabaseClient,
@@ -313,10 +369,11 @@ export async function POST(req: NextRequest) {
     if (isAuthenticated && user) {
       // Create new conversation if none provided
       if (!conversationId) {
-        const title = userMessageContent.substring(0, 50) + (userMessageContent.length > 50 ? "..." : "");
+        // Use truncated message as temporary title (shown immediately)
+        const tempTitle = userMessageContent.substring(0, 50) + (userMessageContent.length > 50 ? "..." : "");
         const { data: newConv, error: convError } = await supabase
           .from("conversations")
-          .insert({ user_id: user.id, title: title || null })
+          .insert({ user_id: user.id, title: tempTitle || null })
           .select("id")
           .single();
 
@@ -324,6 +381,12 @@ export async function POST(req: NextRequest) {
           console.error("[PERSIST] Failed to create conversation:", convError.message);
         } else {
           conversationId = newConv.id;
+
+          // Generate AI title asynchronously (fire-and-forget)
+          // This updates the title in the background without blocking the response
+          generateConversationTitle(userMessageContent).then((aiTitle) => {
+            updateConversationTitle(supabase, newConv.id, aiTitle);
+          });
         }
       }
 
