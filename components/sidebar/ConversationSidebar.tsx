@@ -93,29 +93,32 @@ export function ConversationSidebar({
 
   return (
     <>
-      {/* Toggle button - visible when collapsed */}
-      <button
-        onClick={() => setIsCollapsed(false)}
-        className={cn(
-          "fixed left-0 top-1/2 -translate-y-1/2 z-50",
-          "bg-background border border-input rounded-r-md p-2",
-          "hover:bg-accent transition-colors",
-          "shadow-sm",
-          !isCollapsed && "hidden"
-        )}
-        aria-label="Open sidebar"
-      >
-        <ChevronRightIcon className="h-5 w-5" />
-      </button>
+      {/* Persistent sidebar strip */}
+      <div className="fixed left-0 top-0 h-full w-12 bg-secondary z-50 flex flex-col items-center py-4 gap-3">
+        <button
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className="p-2 hover:bg-accent rounded-md transition-colors"
+          aria-label={isCollapsed ? "Open sidebar" : "Close sidebar"}
+        >
+          <MenuIcon className="h-5 w-5" />
+        </button>
+        <button
+          onClick={onNewConversation}
+          className="p-2 hover:bg-accent rounded-md transition-colors"
+          aria-label="New chat"
+        >
+          <PlusIcon className="h-5 w-5" />
+        </button>
+      </div>
 
-      {/* Sidebar panel */}
+      {/* Expanded sidebar panel */}
       <div
         className={cn(
-          "fixed left-0 top-0 h-full z-40",
+          "fixed left-12 top-0 h-full z-40",
           "bg-background border-r border-input",
           "transition-all duration-300 ease-in-out",
           "flex flex-col",
-          isCollapsed ? "w-0 overflow-hidden" : "w-[280px]"
+          isCollapsed ? "w-0 overflow-hidden" : "w-[260px]"
         )}
       >
         {/* Header */}
@@ -170,6 +173,7 @@ export function ConversationSidebar({
         <div
           className="fixed inset-0 bg-black/20 z-30 md:hidden"
           onClick={() => setIsCollapsed(true)}
+          style={{ left: '48px' }}
         />
       )}
     </>
@@ -248,6 +252,20 @@ function PlusIcon({ className }: { className?: string }) {
       strokeWidth={2}
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+    </svg>
+  );
+}
+
+function MenuIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
     </svg>
   );
 }
