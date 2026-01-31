@@ -51,6 +51,8 @@ function ChatMessages(props: {
   sourcesForMessages: Record<string, any>;
   aiEmoji?: string;
   className?: string;
+  onEditMessage?: (messageId: string, newContent: string) => void;
+  isLoading?: boolean;
 }) {
   return (
     <div className="flex flex-col max-w-[768px] mx-auto pb-12 w-full">
@@ -60,12 +62,18 @@ function ChatMessages(props: {
         }
 
         const sourceKey = (props.messages.length - 1 - i).toString();
+        // Only allow editing the last user message and when not loading
+        const isLastUserMessage = m.role === "user" &&
+          props.messages.slice(i + 1).every(msg => msg.role !== "user");
+
         return (
           <ChatMessageBubble
             key={m.id}
             message={m}
             aiEmoji={props.aiEmoji}
             sources={props.sourcesForMessages[sourceKey]}
+            onEdit={props.onEditMessage}
+            isEditable={isLastUserMessage && !props.isLoading}
           />
         );
       })}
@@ -442,6 +450,145 @@ export function ChatWindow(props: {
     ]);
   }
 
+  // Handle editing a message and resubmitting
+  async function handleEditMessage(messageId: string, newContent: string) {
+    if (chat.status === "streaming" || intermediateStepsLoading) return;
+
+    // Find the message index
+    const messageIndex = chat.messages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    // Create updated message
+    const updatedMessage = createTextMessage(messageId, "user", newContent);
+
+    // Keep only messages up to and including the edited message
+    const messagesUpToEdit = chat.messages.slice(0, messageIndex);
+    const newMessages = [...messagesUpToEdit, updatedMessage];
+
+    // Update messages in the UI immediately
+    chat.setMessages(newMessages);
+
+    // Prepare messages for API
+    const messagesForApi = newMessages.map((m) => ({
+      role: m.role,
+      content: getMessageText(m),
+    }));
+
+    // Send to API and get response
+    if (!showIntermediateSteps) {
+      const response = await fetch(props.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesForApi,
+          conversation_id: currentConversationIdRef.current,
+        }),
+      });
+
+      handleConversationIdFromResponse(response);
+
+      if (!response.ok) {
+        const json = await response.json();
+        toast.error(`Error while processing your request`, { description: json.error });
+        return;
+      }
+
+      // Read the stream and update messages
+      const reader = response.body?.getReader();
+      if (!reader) return;
+
+      let assistantContent = "";
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        assistantContent += chunk;
+
+        // Update assistant message in real-time
+        chat.setMessages([
+          ...newMessages,
+          createTextMessage((newMessages.length).toString(), "assistant", assistantContent),
+        ]);
+      }
+    } else {
+      // Handle intermediate steps mode
+      setIntermediateStepsLoading(true);
+
+      const response = await fetch(props.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesForApi,
+          conversation_id: currentConversationIdRef.current,
+          show_intermediate_steps: true,
+        }),
+      });
+
+      handleConversationIdFromResponse(response);
+
+      const json = await response.json();
+      setIntermediateStepsLoading(false);
+
+      if (!response.ok) {
+        toast.error(`Error while processing your request`, {
+          description: json.error,
+        });
+        return;
+      }
+
+      interface LangChainMessage {
+        role: string;
+        content: string;
+        tool_calls?: Array<{ name: string; args: unknown }>;
+      }
+      const responseMessages: LangChainMessage[] = json.messages;
+
+      const intermediateStepMessages: UIMessage[] = [];
+      let stepIndex = 0;
+
+      for (let i = 0; i < responseMessages.length; i++) {
+        const message = responseMessages[i];
+
+        if (message.role === "assistant" && message.tool_calls?.length) {
+          const toolMessage = responseMessages[i + 1];
+
+          if (toolMessage?.role === "tool") {
+            intermediateStepMessages.push(
+              createTextMessage(
+                (newMessages.length + stepIndex).toString(),
+                "system",
+                JSON.stringify({
+                  action: message.tool_calls[0],
+                  observation: toolMessage.content,
+                })
+              )
+            );
+            stepIndex++;
+          }
+        }
+      }
+
+      const messagesWithSteps = [...newMessages];
+      for (const message of intermediateStepMessages) {
+        messagesWithSteps.push(message);
+        chat.setMessages([...messagesWithSteps]);
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000 + Math.random() * 1000)
+        );
+      }
+
+      const lastResponseContent =
+        responseMessages[responseMessages.length - 1]?.content ?? "";
+      chat.setMessages([
+        ...messagesWithSteps,
+        createTextMessage(messagesWithSteps.length.toString(), "assistant", lastResponseContent),
+      ]);
+    }
+  }
+
   // Show loading state when fetching conversation
   if (isLoadingConversation && props.conversationId) {
     return (
@@ -470,6 +617,8 @@ export function ChatWindow(props: {
             messages={chat.messages}
             emptyStateComponent={props.emptyStateComponent}
             sourcesForMessages={sourcesForMessages}
+            onEditMessage={handleEditMessage}
+            isLoading={chat.status === "streaming" || intermediateStepsLoading}
           />
         )
       }
