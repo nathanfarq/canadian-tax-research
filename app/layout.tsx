@@ -1,6 +1,7 @@
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { NuqsAdapter } from "nuqs/adapters/next";
+import { AccountButton } from "@/components/account/AccountButton";
 
 const Logo = () => (
   <a href="https://taxbuddy.online/">
@@ -44,8 +45,9 @@ export default function RootLayout({
         <NuqsAdapter>
           <div className="bg-secondary grid grid-rows-[auto,1fr] h-[100dvh]">
             <div className="p-4">
-              <div className="flex gap-4 flex-col md:flex-row md:items-center">
+              <div className="flex gap-4 flex-col md:flex-row md:items-center justify-between">
                 <Logo />
+                <AccountButton />
               </div>
             </div>
             <div className="bg-background mx-4 relative grid rounded-t-2xl border border-input border-b-0">

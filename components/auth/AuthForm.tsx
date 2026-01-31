@@ -4,10 +4,25 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { setGuestSession } from "@/lib/auth/guest";
+import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 type AuthMode = "login" | "signup";
+
+function validatePassword(password: string): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (password.length < 8) {
+    errors.push("At least 8 characters");
+  }
+  if (!/[A-Z]/.test(password)) {
+    errors.push("At least 1 capital letter");
+  }
+  if (!/[0-9]/.test(password)) {
+    errors.push("At least 1 number");
+  }
+  return { valid: errors.length === 0, errors };
+}
 
 export function AuthForm() {
   const router = useRouter();
@@ -19,6 +34,7 @@ export function AuthForm() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +55,13 @@ export function AuthForm() {
           router.push("/");
         }
       } else {
+        const validation = validatePassword(password);
+        if (!validation.valid) {
+          setError("Password does not meet requirements");
+          setIsLoading(false);
+          return;
+        }
+
         const { error } = await supabase.auth.signUp({
           email,
           password,
@@ -90,16 +113,36 @@ export function AuthForm() {
           <label htmlFor="password" className="text-sm font-medium">
             Password
           </label>
-          <Input
-            id="password"
-            type="password"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
-            disabled={isLoading}
-          />
+          <div className="relative">
+            <Input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              disabled={isLoading}
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+          {mode === "signup" && (
+            <p className="text-xs text-muted-foreground">
+              Min 8 characters, 1 capital letter, 1 number
+            </p>
+          )}
         </div>
 
         {error && (
