@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/useAuth";
+import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
 interface SettingsDialogProps {
@@ -37,6 +38,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { user } = useAuth();
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [isSaving, setIsSaving] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -69,6 +71,28 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   };
 
+  const handleResetPassword = async () => {
+    if (!user?.email) return;
+
+    setIsResettingPassword(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      });
+
+      if (error) {
+        toast.error(error.message);
+      } else {
+        toast.success("Password reset link sent to your email");
+      }
+    } catch {
+      toast.error("Failed to send reset link");
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -90,6 +114,24 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               disabled
               className="bg-muted"
             />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Password</label>
+            <div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleResetPassword}
+                disabled={isResettingPassword}
+              >
+                {isResettingPassword ? "Sending..." : "Reset Password"}
+              </Button>
+              <p className="text-xs text-muted-foreground mt-1">
+                Send a password reset link to your email
+              </p>
+            </div>
           </div>
 
           <div className="space-y-2">
