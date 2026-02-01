@@ -2,7 +2,7 @@
 
 import { type UIMessage, useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport } from "ai";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { toast } from "sonner";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
@@ -22,6 +22,7 @@ import {
   DialogTrigger,
 } from "./ui/dialog";
 import { cn } from "@/utils/cn";
+import { useConversationMessages } from "@/hooks/useConversationMessages";
 
 // Helper to extract text content from UIMessage parts
 function getMessageText(message: UIMessage): string {
@@ -50,6 +51,8 @@ function ChatMessages(props: {
   sourcesForMessages: Record<string, any>;
   aiEmoji?: string;
   className?: string;
+  onEditMessage?: (messageId: string, newContent: string) => void;
+  isLoading?: boolean;
 }) {
   return (
     <div className="flex flex-col max-w-[768px] mx-auto pb-12 w-full">
@@ -59,12 +62,18 @@ function ChatMessages(props: {
         }
 
         const sourceKey = (props.messages.length - 1 - i).toString();
+        // Only allow editing the last user message and when not loading
+        const isLastUserMessage = m.role === "user" &&
+          props.messages.slice(i + 1).every(msg => msg.role !== "user");
+
         return (
           <ChatMessageBubble
             key={m.id}
             message={m}
             aiEmoji={props.aiEmoji}
             sources={props.sourcesForMessages[sourceKey]}
+            onEdit={props.onEditMessage}
+            isEditable={isLastUserMessage && !props.isLoading}
           />
         );
       })}
@@ -209,6 +218,8 @@ export function ChatWindow(props: {
   showIngestForm?: boolean;
   showIntermediateStepsToggle?: boolean;
   initialMessage?: string;
+  conversationId?: string | null;
+  onConversationChange?: (id: string | null) => void;
 }) {
   const [showIntermediateSteps, setShowIntermediateSteps] = useState(
     !!props.showIntermediateStepsToggle,
@@ -221,6 +232,15 @@ export function ChatWindow(props: {
   >({});
 
   const [inputValue, setInputValue] = useState("");
+
+  // Track current conversation ID for sending with requests
+  const currentConversationIdRef = useRef<string | null>(props.conversationId ?? null);
+
+  // Fetch conversation messages when conversationId changes
+  const {
+    messages: loadedMessages,
+    isLoading: isLoadingConversation,
+  } = useConversationMessages(props.conversationId);
 
   // Create transport for the chat API endpoint
   const transport = useMemo(
@@ -236,20 +256,104 @@ export function ChatWindow(props: {
       }),
   });
 
-  // Set initial message on mount
+  // Update ref when prop changes
   useEffect(() => {
-    if (props.initialMessage && chat.messages.length === 0) {
+    currentConversationIdRef.current = props.conversationId ?? null;
+  }, [props.conversationId]);
+
+  // Load messages when conversation changes
+  useEffect(() => {
+    if (props.conversationId && loadedMessages.length > 0) {
+      // Convert loaded messages to UIMessage format
+      const uiMessages: UIMessage[] = loadedMessages.map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        parts: msg.parts,
+      }));
+      chat.setMessages(uiMessages);
+    } else if (props.conversationId === null) {
+      // New chat - clear messages and show welcome
+      chat.setMessages([]);
+      if (props.initialMessage) {
+        chat.setMessages([createTextMessage("initial", "assistant", props.initialMessage)]);
+      }
+    }
+  }, [props.conversationId, loadedMessages]);
+
+  // Set initial message on mount (only for new chats)
+  useEffect(() => {
+    if (props.initialMessage && chat.messages.length === 0 && !props.conversationId) {
       chat.setMessages([createTextMessage("initial", "assistant", props.initialMessage)]);
     }
   }, []);
+
+  // Helper to handle conversation ID from response
+  function handleConversationIdFromResponse(response: Response) {
+    const newConversationId = response.headers.get("X-Conversation-ID");
+    if (newConversationId && newConversationId !== currentConversationIdRef.current) {
+      currentConversationIdRef.current = newConversationId;
+      props.onConversationChange?.(newConversationId);
+    }
+  }
 
   async function sendMessage(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (chat.status === "streaming" || intermediateStepsLoading) return;
 
     if (!showIntermediateSteps) {
-      chat.sendMessage({ text: inputValue });
+      // For streaming mode, we need to intercept the response to get the conversation ID
+      // The useChat hook handles streaming, but we need the header
+      const messagesForApi = [...chat.messages, createTextMessage("temp", "user", inputValue)].map((m) => ({
+        role: m.role,
+        content: getMessageText(m),
+      }));
+
+      // Make a preflight-style request to get conversation ID, then let useChat handle streaming
+      // Actually, we need to modify the transport or use fetch directly
+      // For now, send via fetch to capture headers, then update chat state
+      const response = await fetch(props.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesForApi,
+          conversation_id: currentConversationIdRef.current,
+        }),
+      });
+
+      handleConversationIdFromResponse(response);
+
+      if (!response.ok) {
+        const json = await response.json();
+        toast.error(`Error while processing your request`, { description: json.error });
+        return;
+      }
+
+      // Read the stream and update messages
+      const reader = response.body?.getReader();
+      if (!reader) return;
+
+      const userMessage = createTextMessage(chat.messages.length.toString(), "user", inputValue);
+      const newMessages = [...chat.messages, userMessage];
+      chat.setMessages(newMessages);
       setInputValue("");
+
+      let assistantContent = "";
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        assistantContent += chunk;
+
+        // Update assistant message in real-time
+        chat.setMessages([
+          ...newMessages,
+          createTextMessage((newMessages.length).toString(), "assistant", assistantContent),
+        ]);
+      }
+
       return;
     }
 
@@ -273,11 +377,16 @@ export function ChatWindow(props: {
 
     const response = await fetch(props.endpoint, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         messages: apiMessages,
+        conversation_id: currentConversationIdRef.current,
         show_intermediate_steps: true,
       }),
     });
+
+    handleConversationIdFromResponse(response);
+
     const json = await response.json();
     setIntermediateStepsLoading(false);
 
@@ -341,6 +450,162 @@ export function ChatWindow(props: {
     ]);
   }
 
+  // Handle editing a message and resubmitting
+  async function handleEditMessage(messageId: string, newContent: string) {
+    if (chat.status === "streaming" || intermediateStepsLoading) return;
+
+    // Find the message index
+    const messageIndex = chat.messages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    // Create updated message
+    const updatedMessage = createTextMessage(messageId, "user", newContent);
+
+    // Keep only messages up to and including the edited message
+    const messagesUpToEdit = chat.messages.slice(0, messageIndex);
+    const newMessages = [...messagesUpToEdit, updatedMessage];
+
+    // Update messages in the UI immediately
+    chat.setMessages(newMessages);
+
+    // Prepare messages for API
+    const messagesForApi = newMessages.map((m) => ({
+      role: m.role,
+      content: getMessageText(m),
+    }));
+
+    // Send to API and get response
+    if (!showIntermediateSteps) {
+      const response = await fetch(props.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesForApi,
+          conversation_id: currentConversationIdRef.current,
+        }),
+      });
+
+      handleConversationIdFromResponse(response);
+
+      if (!response.ok) {
+        const json = await response.json();
+        toast.error(`Error while processing your request`, { description: json.error });
+        return;
+      }
+
+      // Read the stream and update messages
+      const reader = response.body?.getReader();
+      if (!reader) return;
+
+      let assistantContent = "";
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        assistantContent += chunk;
+
+        // Update assistant message in real-time
+        chat.setMessages([
+          ...newMessages,
+          createTextMessage((newMessages.length).toString(), "assistant", assistantContent),
+        ]);
+      }
+    } else {
+      // Handle intermediate steps mode
+      setIntermediateStepsLoading(true);
+
+      const response = await fetch(props.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messagesForApi,
+          conversation_id: currentConversationIdRef.current,
+          show_intermediate_steps: true,
+        }),
+      });
+
+      handleConversationIdFromResponse(response);
+
+      const json = await response.json();
+      setIntermediateStepsLoading(false);
+
+      if (!response.ok) {
+        toast.error(`Error while processing your request`, {
+          description: json.error,
+        });
+        return;
+      }
+
+      interface LangChainMessage {
+        role: string;
+        content: string;
+        tool_calls?: Array<{ name: string; args: unknown }>;
+      }
+      const responseMessages: LangChainMessage[] = json.messages;
+
+      const intermediateStepMessages: UIMessage[] = [];
+      let stepIndex = 0;
+
+      for (let i = 0; i < responseMessages.length; i++) {
+        const message = responseMessages[i];
+
+        if (message.role === "assistant" && message.tool_calls?.length) {
+          const toolMessage = responseMessages[i + 1];
+
+          if (toolMessage?.role === "tool") {
+            intermediateStepMessages.push(
+              createTextMessage(
+                (newMessages.length + stepIndex).toString(),
+                "system",
+                JSON.stringify({
+                  action: message.tool_calls[0],
+                  observation: toolMessage.content,
+                })
+              )
+            );
+            stepIndex++;
+          }
+        }
+      }
+
+      const messagesWithSteps = [...newMessages];
+      for (const message of intermediateStepMessages) {
+        messagesWithSteps.push(message);
+        chat.setMessages([...messagesWithSteps]);
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000 + Math.random() * 1000)
+        );
+      }
+
+      const lastResponseContent =
+        responseMessages[responseMessages.length - 1]?.content ?? "";
+      chat.setMessages([
+        ...messagesWithSteps,
+        createTextMessage(messagesWithSteps.length.toString(), "assistant", lastResponseContent),
+      ]);
+    }
+  }
+
+  // Show loading state when fetching conversation
+  if (isLoadingConversation && props.conversationId) {
+    return (
+      <ChatLayout
+        content={
+          <div className="flex items-center justify-center h-full">
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <LoaderCircle className="h-8 w-8 animate-spin" />
+              <span>Loading conversation...</span>
+            </div>
+          </div>
+        }
+        footer={<div />}
+      />
+    );
+  }
+
   return (
     <ChatLayout
       content={
@@ -352,6 +617,8 @@ export function ChatWindow(props: {
             messages={chat.messages}
             emptyStateComponent={props.emptyStateComponent}
             sourcesForMessages={sourcesForMessages}
+            onEditMessage={handleEditMessage}
+            isLoading={chat.status === "streaming" || intermediateStepsLoading}
           />
         )
       }
