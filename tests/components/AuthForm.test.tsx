@@ -64,10 +64,13 @@ describe("AuthForm", () => {
       await user.type(screen.getByLabelText("Password"), "Password123");
 
       const submitButton = screen.getByRole("button", { name: /log in/i });
-      await user.click(submitButton);
+      // Don't await - check loading state immediately after click
+      void user.click(submitButton);
 
-      // Button should show loading text briefly
-      expect(submitButton).toBeDisabled();
+      // Button should be disabled during submission
+      await waitFor(() => {
+        expect(submitButton).toBeDisabled();
+      });
     });
   });
 

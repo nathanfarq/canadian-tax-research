@@ -292,6 +292,8 @@ export function createMockSupabaseClient() {
       }),
       signInWithPassword: vi.fn(
         async ({ email, password }: { email: string; password: string }) => {
+          // Add minimal delay to allow tests to observe loading state
+          await new Promise((resolve) => setTimeout(resolve, 0));
           if (mockState.authError) {
             return { data: { user: null, session: null }, error: mockState.authError };
           }
@@ -348,11 +350,13 @@ export function createMockSupabaseClient() {
       }),
       onAuthStateChange: vi.fn((callback: AuthStateChangeCallback) => {
         authStateChangeListeners.add(callback);
-        // Call immediately with current state
-        callback(
-          mockState.session ? "INITIAL_SESSION" : "SIGNED_OUT",
-          mockState.session
-        );
+        // Call asynchronously to allow tests to observe loading state
+        queueMicrotask(() => {
+          callback(
+            mockState.session ? "INITIAL_SESSION" : "SIGNED_OUT",
+            mockState.session
+          );
+        });
         return {
           data: {
             subscription: {
