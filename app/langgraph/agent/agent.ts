@@ -24,7 +24,7 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   throw lastError;
 }
 
-const llm = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 });
+const llm = new ChatOpenAI({ model: "gpt-4o", temperature: 0 });
 
 const builder = new StateGraph(
   Annotation.Root({
