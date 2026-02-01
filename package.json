@@ -12,7 +12,8 @@
     "test": "vitest --config tests/vitest.config.ts",
     "test:run": "vitest run --config tests/vitest.config.ts",
     "test:e2e": "playwright test",
-    "test:smoke": "vitest run --config tests/smoke/vitest.config.ts"
+    "test:smoke": "vitest run --config tests/smoke/vitest.config.ts",
+    "test:smoke:supabase": "vitest run --config tests/smoke/vitest.config.ts tests/smoke/supabase.test.ts"
   },
   "engines": {
     "node": ">=18"

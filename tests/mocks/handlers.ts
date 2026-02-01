@@ -1,4 +1,5 @@
 import { http, HttpResponse } from "msw";
+import { supabaseHandlers } from "./supabaseHandlers";
 
 // Mock response for chat API
 const mockChatResponse = {
@@ -27,6 +28,10 @@ const mockIngestResponse = {
 };
 
 export const handlers = [
+  // Supabase/Conversations API handlers
+  ...supabaseHandlers,
+
+  // Existing handlers
   // Chat API endpoint
   http.post("/api/chat/retrieval_agents", async ({ request }) => {
     const body = (await request.json()) as {
