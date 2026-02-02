@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import { toast } from "sonner";
 import { cn } from "@/utils/cn";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useConversations } from "@/hooks/useConversations";
+import { useSidebar } from "@/contexts/SidebarContext";
 import { ConversationItem } from "./ConversationItem";
 
 interface ConversationSidebarProps {
@@ -23,18 +24,7 @@ export function ConversationSidebar({
 }: ConversationSidebarProps) {
   const { isGuest, isLoading: authLoading } = useAuth();
   const { conversations, isLoading: conversationsLoading, refetch } = useConversations();
-  const [isCollapsed, setIsCollapsed] = useState(true);
-
-  // Default: collapsed on mobile, expanded on desktop
-  useEffect(() => {
-    const handleResize = () => {
-      setIsCollapsed(window.innerWidth < 768);
-    };
-
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  const { isCollapsed, setIsCollapsed, toggle } = useSidebar();
 
   const handleDelete = useCallback(async (id: string) => {
     try {
@@ -96,7 +86,7 @@ export function ConversationSidebar({
       {/* Persistent sidebar strip */}
       <div className="fixed left-0 top-0 h-full w-12 bg-secondary z-50 flex flex-col items-center py-4 gap-3">
         <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={toggle}
           className="p-2 hover:bg-accent rounded-md transition-colors"
           aria-label={isCollapsed ? "Open sidebar" : "Close sidebar"}
         >
