@@ -45,8 +45,8 @@ export default function RootLayout({
         <NuqsAdapter>
           <div className="flex h-[100dvh]">
             {/* Sidebar strip - rendered by children */}
-            <div className="flex-1 flex flex-col bg-secondary">
-              <div className="p-4 pl-16">
+            <div className="flex-1 flex flex-col bg-secondary ml-12">
+              <div className="p-4">
                 <div className="flex gap-4 flex-col md:flex-row md:items-center justify-between">
                   <Logo />
                   <AccountButton />
