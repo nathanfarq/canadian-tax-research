@@ -24,6 +24,18 @@ import {
 import { cn } from "@/utils/cn";
 import { useConversationMessages } from "@/hooks/useConversationMessages";
 
+const SOURCE_FILTERS = [
+  { key: "cra",       label: "CRA" },
+  { key: "dof",       label: "DoF" },
+  { key: "eta",       label: "ETA" },
+  { key: "fedbudget", label: "Fed Budget" },
+  { key: "ita",       label: "ITA" },
+  { key: "provtax",   label: "Prov Tax" },
+  { key: "taxlaw",    label: "Tax Law" },
+] as const;
+
+const ALL_SOURCE_KEYS = SOURCE_FILTERS.map((s) => s.key) as string[];
+
 // Helper to extract text content from UIMessage parts
 function getMessageText(message: UIMessage): string {
   return message.parts
@@ -91,6 +103,7 @@ export function ChatInput(props: {
   children?: ReactNode;
   className?: string;
   actions?: ReactNode;
+  filterRow?: ReactNode;
 }) {
   const disabled = props.loading && props.onStop == null;
   return (
@@ -129,6 +142,10 @@ export function ChatInput(props: {
           className="border-none outline-none bg-transparent p-4 resize-none overflow-y-auto"
           style={{ maxHeight: "120px" }}
         />
+
+        {props.filterRow && (
+          <div className="px-3 pb-1">{props.filterRow}</div>
+        )}
 
         <div className="flex justify-between ml-4 mr-2 mb-2">
           <div className="flex gap-3">{props.children}</div>
@@ -233,6 +250,18 @@ export function ChatWindow(props: {
 
   const [inputValue, setInputValue] = useState("");
 
+  const [selectedSources, setSelectedSources] = useState<string[]>([...ALL_SOURCE_KEYS]);
+
+  function toggleSource(key: string) {
+    setSelectedSources((prev) => {
+      if (prev.includes(key)) {
+        if (prev.length === 1) return prev; // prevent deselecting last source
+        return prev.filter((k) => k !== key);
+      }
+      return [...prev, key];
+    });
+  }
+
   // Track current conversation ID for sending with requests
   const currentConversationIdRef = useRef<string | null>(props.conversationId ?? null);
 
@@ -317,6 +346,7 @@ export function ChatWindow(props: {
         body: JSON.stringify({
           messages: messagesForApi,
           conversation_id: currentConversationIdRef.current,
+          selected_sources: selectedSources,
         }),
       });
 
@@ -382,6 +412,7 @@ export function ChatWindow(props: {
         messages: apiMessages,
         conversation_id: currentConversationIdRef.current,
         show_intermediate_steps: true,
+        selected_sources: selectedSources,
       }),
     });
 
@@ -482,6 +513,7 @@ export function ChatWindow(props: {
         body: JSON.stringify({
           messages: messagesForApi,
           conversation_id: currentConversationIdRef.current,
+          selected_sources: selectedSources,
         }),
       });
 
@@ -524,6 +556,7 @@ export function ChatWindow(props: {
           messages: messagesForApi,
           conversation_id: currentConversationIdRef.current,
           show_intermediate_steps: true,
+          selected_sources: selectedSources,
         }),
       });
 
@@ -629,6 +662,37 @@ export function ChatWindow(props: {
           onSubmit={sendMessage}
           loading={chat.status === "streaming" || intermediateStepsLoading}
           placeholder={props.placeholder ?? "Type your message here..."}
+          filterRow={
+            <div className="flex flex-wrap gap-1">
+              <button
+                type="button"
+                onClick={() => setSelectedSources([...ALL_SOURCE_KEYS])}
+                className={cn(
+                  "text-xs px-2 py-0.5 rounded-full border transition-colors",
+                  selectedSources.length === ALL_SOURCE_KEYS.length
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-transparent text-muted-foreground border-input hover:border-primary"
+                )}
+              >
+                All
+              </button>
+              {SOURCE_FILTERS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleSource(key)}
+                  className={cn(
+                    "text-xs px-2 py-0.5 rounded-full border transition-colors",
+                    selectedSources.includes(key)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-transparent text-muted-foreground border-input hover:border-primary"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          }
         >
           {props.showIngestForm && (
             <Dialog>

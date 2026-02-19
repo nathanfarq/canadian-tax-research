@@ -55,6 +55,7 @@ interface ChatRequestBody {
   messages?: ApiChatMessage[];
   conversation_id?: string;
   show_intermediate_steps?: boolean;
+  selected_sources?: string[];
 }
 
 /**
@@ -256,54 +257,58 @@ const searchInputSchema = z.object({
     ),
 });
 
-// Search tool that queries all 7 Qdrant collections concurrently
-const searchDocsTool = tool({
-  description: "Search the Canadian tax document database across all source collections",
-  inputSchema: zodSchema(searchInputSchema),
-  execute: async ({ query, keywords }) => {
-    const queryParts = [query];
-    if (keywords?.length) queryParts.push(...keywords);
-    const searchQuery = queryParts.join(" ");
+// Factory that creates the search tool with an optional source filter baked in via closure
+function createSearchTool(sourceFilter?: string[]) {
+  return tool({
+    description: "Search the Canadian tax document database across all source collections",
+    inputSchema: zodSchema(searchInputSchema),
+    execute: async ({ query, keywords }) => {
+      const queryParts = [query];
+      if (keywords?.length) queryParts.push(...keywords);
+      const searchQuery = queryParts.join(" ");
 
-    console.log("[RETRIEVAL] Query:", searchQuery);
-    console.log("[RETRIEVAL] Keywords:", keywords ?? "none");
+      console.log("[RETRIEVAL] Query:", searchQuery);
+      console.log("[RETRIEVAL] Keywords:", keywords ?? "none");
+      console.log("[RETRIEVAL] Source filter:", sourceFilter ?? "all");
 
-    const results = await searchAllCollections(searchQuery, 3);
+      const results = await searchAllCollections(searchQuery, 3, sourceFilter);
 
-    console.log("[RETRIEVAL] Results count:", results.length);
-    results.forEach((result, i) => {
-      console.log(`[RETRIEVAL] Result ${i + 1}:`, {
-        score: result.score,
-        source: result.collectionSource,
-        title: result.payload?.title || "Untitled",
-        url: result.payload?.url || "no URL",
-        contentPreview: result.payload?.chunk_text?.substring(0, 150) + "...",
+      console.log("[RETRIEVAL] Results count:", results.length);
+      results.forEach((result, i) => {
+        console.log(`[RETRIEVAL] Result ${i + 1}:`, {
+          score: result.score,
+          source: result.collectionSource,
+          title: result.payload?.title || "Untitled",
+          url: result.payload?.url || "no URL",
+          contentPreview: result.payload?.chunk_text?.substring(0, 150) + "...",
+        });
       });
-    });
 
-    const formatted = results.map((result, i) => {
-      const { payload, collectionSource } = result;
-      const title = payload?.title || "Untitled";
-      const url = payload?.url || null;
-      const chunkInfo = payload?.chunk_index !== undefined
-        ? `(chunk ${payload.chunk_index + 1}/${payload.total_chunks})`
-        : "";
-      const sourceTag = `[Source: ${collectionSource}]`;
-      const header = url
-        ? `${sourceTag} [${title}](${url}) ${chunkInfo}`
-        : `${sourceTag} ${title} ${chunkInfo}`;
-      return `### Source ${i + 1}: ${header}\n${payload?.chunk_text || ""}`;
-    }).join("\n\n---\n\n");
+      const formatted = results.map((result, i) => {
+        const { payload, collectionSource } = result;
+        const title = payload?.title || "Untitled";
+        const url = payload?.url || null;
+        const chunkInfo = payload?.chunk_index !== undefined
+          ? `(chunk ${payload.chunk_index + 1}/${payload.total_chunks})`
+          : "";
+        const sourceTag = `[Source: ${collectionSource}]`;
+        const header = url
+          ? `${sourceTag} [${title}](${url}) ${chunkInfo}`
+          : `${sourceTag} ${title} ${chunkInfo}`;
+        return `### Source ${i + 1}: ${header}\n${payload?.chunk_text || ""}`;
+      }).join("\n\n---\n\n");
 
-    return `[Query: ${searchQuery}]\n\n${formatted}`;
-  },
-});
+      return `[Query: ${searchQuery}]\n\n${formatted}`;
+    },
+  });
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body: ChatRequestBody = await req.json();
     const returnIntermediateSteps = body.show_intermediate_steps;
     let conversationId = body.conversation_id;
+    const searchDocsTool = createSearchTool(body.selected_sources);
 
     // Authenticate user (optional - guests can still use chat)
     const supabase = await createClient();

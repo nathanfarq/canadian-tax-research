@@ -98,20 +98,28 @@ async function queryCollection(
 }
 
 /**
- * Search across all 7 collections concurrently.
+ * Search across collections concurrently.
  * Merges results by score, returns top N.
  * If a collection fails, logs a warning and continues with remaining collections.
+ * @param sourceFilter Optional array of sourcePrefix keys to restrict which collections are queried.
+ *                     If omitted or empty, all collections are queried.
  */
 export async function searchAllCollections(
   queryText: string,
   limit: number = 3,
+  sourceFilter?: string[],
 ): Promise<SearchResult[]> {
   const client = getQdrantClient();
   const embeddings = getEmbeddings();
   const denseVector = await embeddings.embedQuery(queryText);
 
+  const collectionsToQuery =
+    sourceFilter && sourceFilter.length > 0
+      ? COLLECTIONS.filter((c) => sourceFilter.includes(c.sourcePrefix))
+      : COLLECTIONS;
+
   const results = await Promise.allSettled(
-    COLLECTIONS.map((config) =>
+    collectionsToQuery.map((config) =>
       queryCollection(client, config, denseVector, queryText, limit)
     )
   );
@@ -122,7 +130,7 @@ export async function searchAllCollections(
       allResults.push(...result.value);
     } else {
       console.warn(
-        `[QDRANT] Collection ${COLLECTIONS[i].collectionName} failed:`,
+        `[QDRANT] Collection ${collectionsToQuery[i].collectionName} failed:`,
         result.reason
       );
     }
