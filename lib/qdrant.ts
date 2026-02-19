@@ -65,37 +65,22 @@ export interface SearchResult {
 
 // --- Search Functions ---
 
-interface SparseVector {
-  indices: number[];
-  values: number[];
-}
 
 async function queryCollection(
   client: QdrantClient,
   config: CollectionConfig,
   denseVector: number[],
-  sparseVector: SparseVector | null,
+  queryText: string,
   limit: number,
 ): Promise<SearchResult[]> {
   const { collectionName, sourcePrefix, displayName } = config;
   const denseVectorName = `${sourcePrefix}-dense`;
   const sparseVectorName = `${sourcePrefix}-sparse`;
 
-  const prefetch: Array<{
-    query: number[] | { indices: number[]; values: number[] };
-    using: string;
-    limit: number;
-  }> = [
+  const prefetch = [
     { query: denseVector, using: denseVectorName, limit: limit * 2 },
+    { query: { text: queryText, model: 'qdrant/bm25' }, using: sparseVectorName, limit: limit * 2 },
   ];
-
-  if (sparseVector) {
-    prefetch.push({
-      query: sparseVector,
-      using: sparseVectorName,
-      limit: limit * 2,
-    });
-  }
 
   const response = await client.query(collectionName, {
     prefetch,
@@ -120,7 +105,6 @@ async function queryCollection(
 export async function searchAllCollections(
   queryText: string,
   limit: number = 3,
-  sparseVector: SparseVector | null = null,
 ): Promise<SearchResult[]> {
   const client = getQdrantClient();
   const embeddings = getEmbeddings();
@@ -128,7 +112,7 @@ export async function searchAllCollections(
 
   const results = await Promise.allSettled(
     COLLECTIONS.map((config) =>
-      queryCollection(client, config, denseVector, sparseVector, limit)
+      queryCollection(client, config, denseVector, queryText, limit)
     )
   );
 
