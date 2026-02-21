@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zodSchema } from "ai";
 import { searchAllCollections, type QdrantPayload } from "@/lib/qdrant";
 import {
-  openai,
+  anthropic,
   streamText,
   generateText,
   tool,
@@ -59,13 +59,13 @@ interface ChatRequestBody {
 }
 
 /**
- * Generates a short, relevant conversation title using GPT-4-mini.
+ * Generates a short, relevant conversation title using Claude Haiku.
  * Designed to be lightweight and cost-effective.
  */
 async function generateConversationTitle(firstMessage: string): Promise<string> {
   try {
     const result = await generateText({
-      model: openai("gpt-4o-mini"),
+      model: anthropic("claude-haiku-4-5"),
       messages: [
         {
           role: "user",
@@ -190,7 +190,7 @@ async function ensureMemoryHydrated(
 }
 
 /**
- * Creates a summarizer function that uses OpenAI to summarize conversation messages.
+ * Creates a summarizer function that uses Claude Haiku to summarize conversation messages.
  */
 async function createConversationSummary(
   messages: ChatMessage[],
@@ -219,7 +219,7 @@ Create a concise summary of this conversation. Capture key topics discussed, que
 
   try {
     const result = await generateText({
-      model: openai("gpt-4o-mini"),
+      model: anthropic("claude-haiku-4-5"),
       messages: [{ role: "user", content: summaryPrompt }],
       temperature: 0.3,
     });
@@ -409,7 +409,7 @@ export async function POST(req: NextRequest) {
     if (!returnIntermediateSteps) {
       // Stream response with tool calling
       const result = streamText({
-        model: openai("gpt-4o"),
+        model: anthropic("claude-sonnet-4-6"),
         system: AGENT_SYSTEM_PROMPT,
         messages,
         tools: { searchDocs: searchDocsTool },
@@ -434,7 +434,7 @@ export async function POST(req: NextRequest) {
     } else {
       // Return intermediate steps for debugging/display
       const result = streamText({
-        model: openai("gpt-4o"),
+        model: anthropic("claude-sonnet-4-6"),
         system: AGENT_SYSTEM_PROMPT,
         messages,
         tools: { searchDocs: searchDocsTool },
