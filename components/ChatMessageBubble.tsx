@@ -1,6 +1,7 @@
 import { cn } from "@/utils/cn";
 import type { UIMessage } from "@ai-sdk/react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
 import { Pencil, Check, X } from "lucide-react";
@@ -133,8 +134,15 @@ export function ChatMessageBubble(props: {
             </div>
           </div>
         ) : (
-          <div className="max-w-none text-foreground">
-            <ReactMarkdown>{messageContent}</ReactMarkdown>
+          <div
+            className={cn(
+              "max-w-none",
+              !isUserMessage && "prose prose-sm text-foreground",
+            )}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {messageContent}
+            </ReactMarkdown>
           </div>
         )}
 
