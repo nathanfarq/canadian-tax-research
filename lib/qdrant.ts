@@ -17,6 +17,7 @@ export const COLLECTIONS: CollectionConfig[] = [
   { collectionName: "ita-collection", sourcePrefix: "ita", displayName: "ITA" },
   { collectionName: "provtax-collection", sourcePrefix: "provtax", displayName: "Provincial Tax" },
   { collectionName: "taxlaw-collection", sourcePrefix: "taxlaw", displayName: "Tax Law" },
+  { collectionName: "taxcomment-collection", sourcePrefix: "taxcomment", displayName: "Tax Commentary" },
 ];
 
 // --- Singleton Qdrant Client ---

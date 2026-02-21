@@ -32,6 +32,7 @@ const SOURCE_FILTERS = [
   { key: "ita",       label: "ITA" },
   { key: "provtax",   label: "Prov Tax" },
   { key: "taxlaw",    label: "Tax Law" },
+  { key: "taxcomment", label: "Commentary" },
 ] as const;
 
 const ALL_SOURCE_KEYS = SOURCE_FILTERS.map((s) => s.key) as string[];

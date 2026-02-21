@@ -37,8 +37,8 @@ describe("Qdrant Smoke Tests", () => {
     expect(QDRANT_URL).not.toBe("");
   });
 
-  it("COLLECTIONS should export exactly 7 domain collections", () => {
-    expect(COLLECTIONS).toHaveLength(7);
+  it("COLLECTIONS should export exactly 8 domain collections", () => {
+    expect(COLLECTIONS).toHaveLength(8);
   });
 
   // -------------------------------------------------------------------------

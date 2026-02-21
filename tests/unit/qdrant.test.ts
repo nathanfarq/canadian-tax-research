@@ -48,8 +48,8 @@ const DUMMY_VECTOR = new Array(1536).fill(0.1);
 // ---------------------------------------------------------------------------
 
 describe("COLLECTIONS", () => {
-  it("has exactly 7 entries", () => {
-    expect(COLLECTIONS).toHaveLength(7);
+  it("has exactly 8 entries", () => {
+    expect(COLLECTIONS).toHaveLength(8);
   });
 
   it("each entry has non-empty collectionName, sourcePrefix, and displayName", () => {
@@ -75,7 +75,7 @@ describe("COLLECTIONS", () => {
   it("contains all expected source prefixes", () => {
     const prefixes = COLLECTIONS.map((c) => c.sourcePrefix);
     expect(prefixes).toEqual(
-      expect.arrayContaining(["cra", "dof", "eta", "fedbudget", "ita", "provtax", "taxlaw"])
+      expect.arrayContaining(["cra", "dof", "eta", "fedbudget", "ita", "provtax", "taxlaw", "taxcomment"])
     );
   });
 
@@ -120,9 +120,9 @@ describe("searchAllCollections()", () => {
     expect(mockEmbedQuery).toHaveBeenCalledWith("tax credits");
   });
 
-  it("queries all 7 collections when no sourceFilter is supplied", async () => {
+  it("queries all 8 collections when no sourceFilter is supplied", async () => {
     await searchAllCollections("RRSP limits");
-    expect(mockQuery).toHaveBeenCalledTimes(7);
+    expect(mockQuery).toHaveBeenCalledTimes(8);
   });
 
   it("queries only matching collections when sourceFilter is provided", async () => {
@@ -136,9 +136,9 @@ describe("searchAllCollections()", () => {
     expect(calledCollections).toContain("ita-collection");
   });
 
-  it("queries all 7 collections when sourceFilter is an empty array", async () => {
+  it("queries all 8 collections when sourceFilter is an empty array", async () => {
     await searchAllCollections("deductions", 3, []);
-    expect(mockQuery).toHaveBeenCalledTimes(7);
+    expect(mockQuery).toHaveBeenCalledTimes(8);
   });
 
   it("sends a hybrid prefetch with dense vector and BM25 sparse entries", async () => {
