@@ -91,6 +91,19 @@
     padding: 4px;
   }
 
+  .prose {
+    --tw-prose-body: hsl(var(--foreground));
+    --tw-prose-headings: hsl(var(--foreground));
+    --tw-prose-bold: hsl(var(--foreground));
+    --tw-prose-links: hsl(var(--link));
+    --tw-prose-code: hsl(var(--foreground));
+    --tw-prose-bullets: hsl(var(--muted-foreground));
+    --tw-prose-counters: hsl(var(--muted-foreground));
+    --tw-prose-hr: hsl(var(--border));
+    --tw-prose-th-borders: hsl(var(--border));
+    --tw-prose-td-borders: hsl(var(--border));
+  }
+
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
   }
