@@ -271,7 +271,7 @@ function createSearchTool(sourceFilter?: string[]) {
       console.log("[RETRIEVAL] Keywords:", keywords ?? "none");
       console.log("[RETRIEVAL] Source filter:", sourceFilter ?? "all");
 
-      const results = await searchAllCollections(searchQuery, 3, sourceFilter);
+      const results = await searchAllCollections(searchQuery, 5, sourceFilter);
 
       console.log("[RETRIEVAL] Results count:", results.length);
       results.forEach((result, i) => {

@@ -107,7 +107,7 @@ async function queryCollection(
  */
 export async function searchAllCollections(
   queryText: string,
-  limit: number = 3,
+  limit: number = 5,
   sourceFilter?: string[],
 ): Promise<SearchResult[]> {
   const client = getQdrantClient();
