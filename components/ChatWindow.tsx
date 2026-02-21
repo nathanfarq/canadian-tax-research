@@ -10,7 +10,7 @@ import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { ChatMessageBubble } from "@/components/ChatMessageBubble";
 import { IntermediateStep } from "./IntermediateStep";
 import { Button } from "./ui/button";
-import { ArrowDown, LoaderCircle, Paperclip } from "lucide-react";
+import { ArrowDown, ChevronDown, LoaderCircle, Paperclip } from "lucide-react";
 import { Checkbox } from "./ui/checkbox";
 import { UploadDocumentsForm } from "./UploadDocumentsForm";
 import {
@@ -262,6 +262,21 @@ export function ChatWindow(props: {
       return [...prev, key];
     });
   }
+
+  const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
+  const sourceDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (sourceDropdownRef.current && !sourceDropdownRef.current.contains(e.target as Node)) {
+        setSourceDropdownOpen(false);
+      }
+    }
+    if (sourceDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [sourceDropdownOpen]);
 
   // Track current conversation ID for sending with requests
   const currentConversationIdRef = useRef<string | null>(props.conversationId ?? null);
@@ -663,38 +678,70 @@ export function ChatWindow(props: {
           onSubmit={sendMessage}
           loading={chat.status === "streaming" || intermediateStepsLoading}
           placeholder={props.placeholder ?? "Type your message here..."}
-          filterRow={
-            <div className="flex flex-wrap gap-1">
-              <button
-                type="button"
-                onClick={() => setSelectedSources([...ALL_SOURCE_KEYS])}
-                className={cn(
-                  "text-xs px-2 py-0.5 rounded-full border transition-colors",
-                  selectedSources.length === ALL_SOURCE_KEYS.length
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-transparent text-muted-foreground border-input hover:border-primary"
-                )}
-              >
-                All
-              </button>
-              {SOURCE_FILTERS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => toggleSource(key)}
-                  className={cn(
-                    "text-xs px-2 py-0.5 rounded-full border transition-colors",
-                    selectedSources.includes(key)
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-transparent text-muted-foreground border-input hover:border-primary"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          }
         >
+          {/* Sources dropdown */}
+          <div className="relative" ref={sourceDropdownRef}>
+            {sourceDropdownOpen && (
+              <div className="absolute bottom-full left-0 mb-1 w-48 rounded-md border border-input bg-popover shadow-md py-2 z-10">
+                <p className="text-xs font-semibold text-foreground mb-1.5 px-3">Sources</p>
+
+                <label className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-accent cursor-pointer select-none">
+                  <Checkbox
+                    checked={selectedSources.length === ALL_SOURCE_KEYS.length}
+                    onCheckedChange={() => setSelectedSources([...ALL_SOURCE_KEYS])}
+                  />
+                  <span className="text-sm">Select all</span>
+                </label>
+
+                <div className="my-1.5 mx-3 border-t border-border" />
+
+                {SOURCE_FILTERS.map(({ key, label }) => (
+                  <label
+                    key={key}
+                    className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-accent cursor-pointer select-none"
+                  >
+                    <Checkbox
+                      checked={selectedSources.includes(key)}
+                      onCheckedChange={() => toggleSource(key)}
+                    />
+                    <span className="text-sm">{label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setSourceDropdownOpen((o) => !o)}
+              className={cn(
+                "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border transition-colors",
+                selectedSources.length < ALL_SOURCE_KEYS.length
+                  ? "border-primary text-primary"
+                  : "border-input text-muted-foreground hover:border-primary"
+              )}
+            >
+              <span>Sources</span>
+              {selectedSources.length < ALL_SOURCE_KEYS.length && (
+                <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[10px] font-medium leading-4">
+                  {selectedSources.length}
+                </span>
+              )}
+              <ChevronDown className={cn("size-3 transition-transform", sourceDropdownOpen && "rotate-180")} />
+            </button>
+          </div>
+
+          {props.showIntermediateStepsToggle && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <Checkbox
+                id="show_intermediate_steps"
+                name="show_intermediate_steps"
+                checked={showIntermediateSteps}
+                disabled={chat.status === "streaming" || intermediateStepsLoading}
+                onCheckedChange={(e) => setShowIntermediateSteps(!!e)}
+              />
+              <span className="text-xs text-muted-foreground">Show steps</span>
+            </label>
+          )}
+
           {props.showIngestForm && (
             <Dialog>
               <DialogTrigger asChild>
@@ -717,21 +764,6 @@ export function ChatWindow(props: {
                 <UploadDocumentsForm />
               </DialogContent>
             </Dialog>
-          )}
-
-          {props.showIntermediateStepsToggle && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="show_intermediate_steps"
-                name="show_intermediate_steps"
-                checked={showIntermediateSteps}
-                disabled={chat.status === "streaming" || intermediateStepsLoading}
-                onCheckedChange={(e) => setShowIntermediateSteps(!!e)}
-              />
-              <label htmlFor="show_intermediate_steps" className="text-sm">
-                Show steps
-              </label>
-            </div>
           )}
         </ChatInput>
       }
