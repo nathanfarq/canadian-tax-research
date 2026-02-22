@@ -10,7 +10,7 @@ import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { ChatMessageBubble } from "@/components/ChatMessageBubble";
 import { IntermediateStep } from "./IntermediateStep";
 import { Button } from "./ui/button";
-import { ArrowDown, LoaderCircle, Paperclip } from "lucide-react";
+import { ArrowDown, ChevronDown, LoaderCircle, Paperclip } from "lucide-react";
 import { Checkbox } from "./ui/checkbox";
 import { UploadDocumentsForm } from "./UploadDocumentsForm";
 import {
@@ -23,6 +23,19 @@ import {
 } from "./ui/dialog";
 import { cn } from "@/utils/cn";
 import { useConversationMessages } from "@/hooks/useConversationMessages";
+
+const SOURCE_FILTERS = [
+  { key: "cra",       label: "CRA" },
+  { key: "dof",       label: "DoF" },
+  { key: "eta",       label: "ETA" },
+  { key: "fedbudget", label: "Fed Budget" },
+  { key: "ita",       label: "ITA" },
+  { key: "provtax",   label: "Prov Tax" },
+  { key: "taxlaw",    label: "Tax Law" },
+  { key: "taxcomment", label: "Commentary" },
+] as const;
+
+const ALL_SOURCE_KEYS = SOURCE_FILTERS.map((s) => s.key) as string[];
 
 // Helper to extract text content from UIMessage parts
 function getMessageText(message: UIMessage): string {
@@ -91,6 +104,7 @@ export function ChatInput(props: {
   children?: ReactNode;
   className?: string;
   actions?: ReactNode;
+  filterRow?: ReactNode;
 }) {
   const disabled = props.loading && props.onStop == null;
   return (
@@ -129,6 +143,10 @@ export function ChatInput(props: {
           className="border-none outline-none bg-transparent p-4 resize-none overflow-y-auto"
           style={{ maxHeight: "120px" }}
         />
+
+        {props.filterRow && (
+          <div className="px-3 pb-1">{props.filterRow}</div>
+        )}
 
         <div className="flex justify-between ml-4 mr-2 mb-2">
           <div className="flex gap-3">{props.children}</div>
@@ -233,6 +251,33 @@ export function ChatWindow(props: {
 
   const [inputValue, setInputValue] = useState("");
 
+  const [selectedSources, setSelectedSources] = useState<string[]>([...ALL_SOURCE_KEYS]);
+
+  function toggleSource(key: string) {
+    setSelectedSources((prev) => {
+      if (prev.includes(key)) {
+        if (prev.length === 1) return prev; // prevent deselecting last source
+        return prev.filter((k) => k !== key);
+      }
+      return [...prev, key];
+    });
+  }
+
+  const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
+  const sourceDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (sourceDropdownRef.current && !sourceDropdownRef.current.contains(e.target as Node)) {
+        setSourceDropdownOpen(false);
+      }
+    }
+    if (sourceDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [sourceDropdownOpen]);
+
   // Track current conversation ID for sending with requests
   const currentConversationIdRef = useRef<string | null>(props.conversationId ?? null);
 
@@ -317,6 +362,7 @@ export function ChatWindow(props: {
         body: JSON.stringify({
           messages: messagesForApi,
           conversation_id: currentConversationIdRef.current,
+          selected_sources: selectedSources,
         }),
       });
 
@@ -382,6 +428,7 @@ export function ChatWindow(props: {
         messages: apiMessages,
         conversation_id: currentConversationIdRef.current,
         show_intermediate_steps: true,
+        selected_sources: selectedSources,
       }),
     });
 
@@ -482,6 +529,7 @@ export function ChatWindow(props: {
         body: JSON.stringify({
           messages: messagesForApi,
           conversation_id: currentConversationIdRef.current,
+          selected_sources: selectedSources,
         }),
       });
 
@@ -524,6 +572,7 @@ export function ChatWindow(props: {
           messages: messagesForApi,
           conversation_id: currentConversationIdRef.current,
           show_intermediate_steps: true,
+          selected_sources: selectedSources,
         }),
       });
 
@@ -630,6 +679,69 @@ export function ChatWindow(props: {
           loading={chat.status === "streaming" || intermediateStepsLoading}
           placeholder={props.placeholder ?? "Type your message here..."}
         >
+          {/* Sources dropdown */}
+          <div className="relative" ref={sourceDropdownRef}>
+            {sourceDropdownOpen && (
+              <div className="absolute bottom-full left-0 mb-1 w-48 rounded-md border border-input bg-popover shadow-md py-2 z-10">
+                <p className="text-xs font-semibold text-foreground mb-1.5 px-3">Sources</p>
+
+                <label className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-accent cursor-pointer select-none">
+                  <Checkbox
+                    checked={selectedSources.length === ALL_SOURCE_KEYS.length}
+                    onCheckedChange={() => setSelectedSources([...ALL_SOURCE_KEYS])}
+                  />
+                  <span className="text-sm">Select all</span>
+                </label>
+
+                <div className="my-1.5 mx-3 border-t border-border" />
+
+                {SOURCE_FILTERS.map(({ key, label }) => (
+                  <label
+                    key={key}
+                    className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-accent cursor-pointer select-none"
+                  >
+                    <Checkbox
+                      checked={selectedSources.includes(key)}
+                      onCheckedChange={() => toggleSource(key)}
+                    />
+                    <span className="text-sm">{label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setSourceDropdownOpen((o) => !o)}
+              className={cn(
+                "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border transition-colors",
+                selectedSources.length < ALL_SOURCE_KEYS.length
+                  ? "border-primary text-primary"
+                  : "border-input text-muted-foreground hover:border-primary"
+              )}
+            >
+              <span>Sources</span>
+              {selectedSources.length < ALL_SOURCE_KEYS.length && (
+                <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[10px] font-medium leading-4">
+                  {selectedSources.length}
+                </span>
+              )}
+              <ChevronDown className={cn("size-3 transition-transform", sourceDropdownOpen && "rotate-180")} />
+            </button>
+          </div>
+
+          {props.showIntermediateStepsToggle && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <Checkbox
+                id="show_intermediate_steps"
+                name="show_intermediate_steps"
+                checked={showIntermediateSteps}
+                disabled={chat.status === "streaming" || intermediateStepsLoading}
+                onCheckedChange={(e) => setShowIntermediateSteps(!!e)}
+              />
+              <span className="text-xs text-muted-foreground">Show steps</span>
+            </label>
+          )}
+
           {props.showIngestForm && (
             <Dialog>
               <DialogTrigger asChild>
@@ -652,21 +764,6 @@ export function ChatWindow(props: {
                 <UploadDocumentsForm />
               </DialogContent>
             </Dialog>
-          )}
-
-          {props.showIntermediateStepsToggle && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="show_intermediate_steps"
-                name="show_intermediate_steps"
-                checked={showIntermediateSteps}
-                disabled={chat.status === "streaming" || intermediateStepsLoading}
-                onCheckedChange={(e) => setShowIntermediateSteps(!!e)}
-              />
-              <label htmlFor="show_intermediate_steps" className="text-sm">
-                Show steps
-              </label>
-            </div>
           )}
         </ChatInput>
       }

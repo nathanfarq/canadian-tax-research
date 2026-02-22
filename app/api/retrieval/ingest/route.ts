@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { QdrantVectorStore } from "@langchain/qdrant";
-import { OpenAIEmbeddings } from "@langchain/openai";
+import { getQdrantClient, getEmbeddings } from "@/lib/qdrant";
 import { v4 as uuidv4 } from "uuid";
 
 export const runtime = "nodejs";
 
 const COLLECTION_NAME = "tax_documents";
-const embeddings = new OpenAIEmbeddings({ model: "text-embedding-3-small" });
 
 const MAX_RETRIES = 2;
 
@@ -26,18 +24,6 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   throw lastError;
 }
 
-// Get the underlying Qdrant client from QdrantVectorStore
-async function getQdrantClient() {
-  const vectorStore = await QdrantVectorStore.fromExistingCollection(
-    embeddings,
-    {
-      url: process.env.QDRANT_URL!,
-      apiKey: process.env.QDRANT_API_KEY,
-      collectionName: COLLECTION_NAME,
-    }
-  );
-  return vectorStore.client;
-}
 
 /**
  * This handler takes input text, splits it into chunks, and embeds those chunks
@@ -79,7 +65,7 @@ export async function POST(req: NextRequest) {
 
     // Generate embeddings for all chunks
     const chunkTexts = splitDocuments.map((doc) => doc.pageContent);
-    const vectors = await embeddings.embedDocuments(chunkTexts);
+    const vectors = await getEmbeddings().embedDocuments(chunkTexts);
 
     // Build points with flat payload structure
     const points = splitDocuments.map((doc, index) => {
@@ -104,7 +90,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Get Qdrant client and upsert points directly
-    const qdrantClient = await getQdrantClient();
+    const qdrantClient = getQdrantClient();
 
     await withRetry(async () => {
       await qdrantClient.upsert(COLLECTION_NAME, {

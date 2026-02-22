@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { zodSchema } from "ai";
-import { QdrantVectorStore } from "@langchain/qdrant";
-import { OpenAIEmbeddings } from "@langchain/openai";
+import { searchAllCollections, type QdrantPayload } from "@/lib/qdrant";
 import {
-  openai,
+  anthropic,
   streamText,
   generateText,
   tool,
@@ -56,16 +55,17 @@ interface ChatRequestBody {
   messages?: ApiChatMessage[];
   conversation_id?: string;
   show_intermediate_steps?: boolean;
+  selected_sources?: string[];
 }
 
 /**
- * Generates a short, relevant conversation title using GPT-4-mini.
+ * Generates a short, relevant conversation title using Claude Haiku.
  * Designed to be lightweight and cost-effective.
  */
 async function generateConversationTitle(firstMessage: string): Promise<string> {
   try {
     const result = await generateText({
-      model: openai("gpt-4o-mini"),
+      model: anthropic("claude-haiku-4-5"),
       messages: [
         {
           role: "user",
@@ -152,8 +152,6 @@ function normalizeMessages(messages: ApiChatMessage[]): NormalizedMessage[] {
   }));
 }
 
-const COLLECTION_NAME = "tax_documents";
-const embeddings = new OpenAIEmbeddings({ model: "text-embedding-3-small" });
 
 /**
  * Gets the memory key for a conversation.
@@ -192,7 +190,7 @@ async function ensureMemoryHydrated(
 }
 
 /**
- * Creates a summarizer function that uses OpenAI to summarize conversation messages.
+ * Creates a summarizer function that uses Claude Haiku to summarize conversation messages.
  */
 async function createConversationSummary(
   messages: ChatMessage[],
@@ -221,7 +219,7 @@ Create a concise summary of this conversation. Capture key topics discussed, que
 
   try {
     const result = await generateText({
-      model: openai("gpt-4o-mini"),
+      model: anthropic("claude-haiku-4-5"),
       messages: [{ role: "user", content: summaryPrompt }],
       temperature: 0.3,
     });
@@ -246,31 +244,6 @@ async function checkAndSummarize(memoryKey: string): Promise<void> {
   }
 }
 
-// Initialize QdrantVectorStore to access the underlying Qdrant client
-async function getQdrantClient() {
-  const vectorStore = await QdrantVectorStore.fromExistingCollection(
-    embeddings,
-    {
-      url: process.env.QDRANT_URL!,
-      apiKey: process.env.QDRANT_API_KEY,
-      collectionName: COLLECTION_NAME,
-    }
-  );
-  return vectorStore.client;
-}
-
-// Qdrant payload structure (flat, not nested under metadata)
-interface QdrantPayload {
-  chunk_text: string;
-  title?: string;
-  url?: string;
-  chunk_index?: number;
-  total_chunks?: number;
-  source?: string;
-  doc_type?: string;
-  scraped_at?: string;
-}
-
 // Define the search tool input schema
 const searchInputSchema = z.object({
   query: z.string().describe(
@@ -284,69 +257,58 @@ const searchInputSchema = z.object({
     ),
 });
 
-// Create the search tool that queries Qdrant directly
-const createSearchDocsTool = (qdrantClient: Awaited<ReturnType<typeof getQdrantClient>>) =>
-  tool({
-    description: "Search the Canadian tax document database",
+// Factory that creates the search tool with an optional source filter baked in via closure
+function createSearchTool(sourceFilter?: string[]) {
+  return tool({
+    description: "Search the Canadian tax document database across all source collections",
     inputSchema: zodSchema(searchInputSchema),
     execute: async ({ query, keywords }) => {
-      // Build search query with optional keywords
       const queryParts = [query];
       if (keywords?.length) queryParts.push(...keywords);
-
       const searchQuery = queryParts.join(" ");
 
-      // Retrieval diagnostics
       console.log("[RETRIEVAL] Query:", searchQuery);
       console.log("[RETRIEVAL] Keywords:", keywords ?? "none");
+      console.log("[RETRIEVAL] Source filter:", sourceFilter ?? "all");
 
-      // Generate embedding for the query
-      const queryVector = await embeddings.embedQuery(searchQuery);
+      const results = await searchAllCollections(searchQuery, 5, sourceFilter);
 
-      // Query Qdrant directly to get flat payload structure
-      const searchResult = await qdrantClient.search(COLLECTION_NAME, {
-        vector: queryVector,
-        limit: 3,
-        with_payload: true,
-      });
-
-      // Log retrieval results
-      console.log("[RETRIEVAL] Results count:", searchResult.length);
-      searchResult.forEach((result, i) => {
-        const payload = result.payload as unknown as QdrantPayload;
+      console.log("[RETRIEVAL] Results count:", results.length);
+      results.forEach((result, i) => {
         console.log(`[RETRIEVAL] Result ${i + 1}:`, {
           score: result.score,
-          title: payload?.title || "Untitled",
-          url: payload?.url || "no URL",
-          contentPreview: payload?.chunk_text?.substring(0, 150) + "...",
+          source: result.collectionSource,
+          title: result.payload?.title || "Untitled",
+          url: result.payload?.url || "no URL",
+          contentPreview: result.payload?.chunk_text?.substring(0, 150) + "...",
         });
       });
 
-      // Format results with metadata (title, URL, chunk info)
-      const results = searchResult.map((result, i) => {
-        const payload = result.payload as unknown as QdrantPayload;
+      const formatted = results.map((result, i) => {
+        const { payload, collectionSource } = result;
         const title = payload?.title || "Untitled";
         const url = payload?.url || null;
         const chunkInfo = payload?.chunk_index !== undefined
           ? `(chunk ${payload.chunk_index + 1}/${payload.total_chunks})`
           : "";
-
+        const sourceTag = `[Source: ${collectionSource}]`;
         const header = url
-          ? `[${title}](${url}) ${chunkInfo}`
-          : `${title} ${chunkInfo}`;
-
+          ? `${sourceTag} [${title}](${url}) ${chunkInfo}`
+          : `${sourceTag} ${title} ${chunkInfo}`;
         return `### Source ${i + 1}: ${header}\n${payload?.chunk_text || ""}`;
       }).join("\n\n---\n\n");
 
-      return `[Query: ${searchQuery}]\n\n${results}`;
+      return `[Query: ${searchQuery}]\n\n${formatted}`;
     },
   });
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body: ChatRequestBody = await req.json();
     const returnIntermediateSteps = body.show_intermediate_steps;
     let conversationId = body.conversation_id;
+    const searchDocsTool = createSearchTool(body.selected_sources);
 
     // Authenticate user (optional - guests can still use chat)
     const supabase = await createClient();
@@ -438,10 +400,6 @@ export async function POST(req: NextRequest) {
 
     const messages = await convertToModelMessages(messagesWithSummary);
 
-    // Initialize Qdrant client and create search tool
-    const qdrantClient = await getQdrantClient();
-    const searchDocs = createSearchDocsTool(qdrantClient);
-
     // Prepare response headers with conversation ID
     const responseHeaders: HeadersInit = {};
     if (conversationId) {
@@ -451,10 +409,10 @@ export async function POST(req: NextRequest) {
     if (!returnIntermediateSteps) {
       // Stream response with tool calling
       const result = streamText({
-        model: openai("gpt-4o"),
+        model: anthropic("claude-sonnet-4-6"),
         system: AGENT_SYSTEM_PROMPT,
         messages,
-        tools: { searchDocs },
+        tools: { searchDocs: searchDocsTool },
         stopWhen: stepCountIs(5),
         temperature: 0.2,
         onFinish: async ({ text }) => {
@@ -476,10 +434,10 @@ export async function POST(req: NextRequest) {
     } else {
       // Return intermediate steps for debugging/display
       const result = streamText({
-        model: openai("gpt-4o"),
+        model: anthropic("claude-sonnet-4-6"),
         system: AGENT_SYSTEM_PROMPT,
         messages,
-        tools: { searchDocs },
+        tools: { searchDocs: searchDocsTool },
         stopWhen: stepCountIs(5),
         temperature: 0.2,
       });
