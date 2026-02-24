@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { zodSchema } from "ai";
 import { searchAllCollections, type QdrantPayload } from "@/lib/qdrant";
@@ -352,9 +352,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Save user message (fire-and-forget)
+      // Save user message
       if (conversationId && userMessageContent) {
-        persistMessage(supabase, conversationId, "user", userMessageContent);
+        await persistMessage(supabase, conversationId, "user", userMessageContent);
       }
     }
 
@@ -415,19 +415,24 @@ export async function POST(req: NextRequest) {
         tools: { searchDocs: searchDocsTool },
         stopWhen: stepCountIs(5),
         temperature: 0.2,
-        onFinish: async ({ text }) => {
-          // Save to memory (always, for context continuity)
-          if (userMessageContent && text) {
-            await addMessageToConversation(memoryKey, "user", userMessageContent);
-            await addMessageToConversation(memoryKey, "assistant", text);
-            // Check if summarization is needed after adding messages
-            await checkAndSummarize(memoryKey);
-          }
-          // Save assistant response to Supabase for authenticated users
-          if (isAuthenticated && conversationId && text) {
-            await persistMessage(supabase, conversationId, "assistant", text);
-          }
-        },
+      });
+
+      // Use after() to reliably persist messages after the response stream completes.
+      // onFinish callbacks are unreliable in Next.js because the runtime may tear down
+      // the request context before the async callback finishes.
+      after(async () => {
+        const text = await result.text;
+        // Save to memory
+        if (userMessageContent && text) {
+          await addMessageToConversation(memoryKey, "user", userMessageContent);
+          await addMessageToConversation(memoryKey, "assistant", text);
+          // Check if summarization is needed after adding messages
+          await checkAndSummarize(memoryKey);
+        }
+        // Save assistant response to Supabase for authenticated users
+        if (isAuthenticated && conversationId && text) {
+          await persistMessage(supabase, conversationId, "assistant", text);
+        }
       });
 
       return result.toTextStreamResponse({ headers: responseHeaders });
@@ -493,7 +498,7 @@ export async function POST(req: NextRequest) {
       }
       // Save assistant response to Supabase for authenticated users
       if (isAuthenticated && conversationId && finalAssistantContent) {
-        persistMessage(supabase, conversationId, "assistant", finalAssistantContent);
+        await persistMessage(supabase, conversationId, "assistant", finalAssistantContent);
       }
 
       return NextResponse.json(
