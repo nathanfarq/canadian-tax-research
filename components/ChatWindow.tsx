@@ -28,7 +28,6 @@ const SOURCE_FILTERS = [
   { key: "cra",       label: "CRA" },
   { key: "dof",       label: "DoF" },
   { key: "eta",       label: "ETA" },
-  { key: "fedbudget", label: "Fed Budget" },
   { key: "ita",       label: "ITA" },
   { key: "provtax",   label: "Prov Tax" },
   { key: "taxlaw",    label: "Tax Law" },
