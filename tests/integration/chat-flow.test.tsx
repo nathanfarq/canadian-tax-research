@@ -169,14 +169,12 @@ describe("ChatWindow Integration", () => {
           role: "assistant",
           parts: [
             {
-              type: "tool-invocation",
-              toolInvocation: {
-                toolCallId: "tc-1",
-                toolName: "searchDocs",
-                args: { query: "tax" },
-                result: "Found results",
-                state: "result",
-              },
+              type: "tool-searchDocs",
+              toolCallId: "tc-1",
+              toolName: "searchDocs",
+              state: "output-available",
+              input: { query: "tax" },
+              output: "Found results",
             },
             {
               type: "text",
