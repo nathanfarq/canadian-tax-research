@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "./useAuth";
 
 export interface Conversation {
@@ -15,6 +15,7 @@ interface UseConversationsReturn {
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
+  isGuest: boolean;
 }
 
 export function useConversations(): UseConversationsReturn {
@@ -22,6 +23,12 @@ export function useConversations(): UseConversationsReturn {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasConversationsRef = useRef(false);
+
+  // Keep ref in sync with conversations state
+  useEffect(() => {
+    hasConversationsRef.current = conversations.length > 0;
+  }, [conversations]);
 
   const fetchConversations = useCallback(async () => {
     if (isGuest || !user) {
@@ -29,7 +36,10 @@ export function useConversations(): UseConversationsReturn {
       return;
     }
 
-    setIsLoading(true);
+    // Only show loading skeleton on initial load, not on refetch
+    if (!hasConversationsRef.current) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -61,5 +71,6 @@ export function useConversations(): UseConversationsReturn {
     isLoading: isLoading || authLoading,
     error,
     refetch: fetchConversations,
+    isGuest,
   };
 }

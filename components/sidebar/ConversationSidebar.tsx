@@ -4,7 +4,6 @@ import { useCallback } from "react";
 import { toast } from "sonner";
 import { cn } from "@/utils/cn";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/useAuth";
 import type { Conversation } from "@/hooks/useConversations";
 import { useSidebar } from "@/contexts/SidebarContext";
 import { ConversationItem } from "./ConversationItem";
@@ -17,6 +16,7 @@ interface ConversationSidebarProps {
   conversations: Conversation[];
   conversationsLoading: boolean;
   onRefetchConversations: () => Promise<void>;
+  isGuest: boolean;
 }
 
 export function ConversationSidebar({
@@ -26,9 +26,9 @@ export function ConversationSidebar({
   onDeleteConversation,
   conversations,
   conversationsLoading,
+  isGuest,
   onRefetchConversations,
 }: ConversationSidebarProps) {
-  const { isGuest, isLoading: authLoading } = useAuth();
   const { isCollapsed, setIsCollapsed, toggle } = useSidebar();
 
   const handleDelete = useCallback(async (id: string) => {
@@ -84,7 +84,7 @@ export function ConversationSidebar({
     }
   }, [onRefetchConversations]);
 
-  const isLoading = authLoading || conversationsLoading;
+  const isLoading = conversationsLoading;
 
   return (
     <>

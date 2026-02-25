@@ -23,6 +23,7 @@ export default function Home() {
     conversations,
     isLoading: conversationsLoading,
     refetch: refetchConversations,
+    isGuest,
   } = useConversations();
 
   const handleSelectConversation = useCallback((id: string) => {
@@ -58,6 +59,7 @@ export default function Home() {
         conversations={conversations}
         conversationsLoading={conversationsLoading}
         onRefetchConversations={refetchConversations}
+        isGuest={isGuest}
       />
       <div className="flex-1 relative">
         <ChatWindow

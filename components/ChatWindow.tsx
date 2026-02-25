@@ -256,6 +256,12 @@ export function ChatWindow(props: {
   // Track current conversation ID for sending with requests
   const currentConversationIdRef = useRef<string | null>(props.conversationId ?? null);
 
+  // Keep a stable ref to onConversationChange so the transport closure always uses the latest version
+  const onConversationChangeRef = useRef(props.onConversationChange);
+  useEffect(() => {
+    onConversationChangeRef.current = props.onConversationChange;
+  }, [props.onConversationChange]);
+
   // Fetch conversation messages when conversationId changes
   const {
     messages: loadedMessages,
@@ -272,7 +278,7 @@ export function ChatWindow(props: {
         const newConversationId = response.headers.get("X-Conversation-ID");
         if (newConversationId && newConversationId !== currentConversationIdRef.current) {
           currentConversationIdRef.current = newConversationId;
-          props.onConversationChange?.(newConversationId);
+          onConversationChangeRef.current?.(newConversationId);
         }
         return response;
       },
