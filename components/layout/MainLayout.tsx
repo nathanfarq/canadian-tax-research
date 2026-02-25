@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { useSidebar } from "@/contexts/SidebarContext";
 import { AccountButton } from "@/components/account/AccountButton";
 import { cn } from "@/utils/cn";
@@ -17,6 +18,8 @@ const Logo = () => (
 
 export function MainLayout({ children }: { children: ReactNode }) {
   const { isCollapsed } = useSidebar();
+  const pathname = usePathname();
+  const isAuthPage = pathname === "/auth";
 
   // Sidebar strip is always 48px (w-12)
   // Expanded panel adds 260px when open
@@ -26,7 +29,7 @@ export function MainLayout({ children }: { children: ReactNode }) {
       <div
         className={cn(
           "flex-1 flex flex-col bg-secondary transition-all duration-300 ease-in-out",
-          isCollapsed ? "ml-12" : "ml-12 md:ml-[308px]"
+          isAuthPage ? "" : isCollapsed ? "ml-12" : "ml-12 md:ml-[308px]"
         )}
       >
         <div className="p-4">
