@@ -19,7 +19,11 @@ What can I help you with today?`;
 
 export default function Home() {
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const { refetch: refetchConversations } = useConversations();
+  const {
+    conversations,
+    isLoading: conversationsLoading,
+    refetch: refetchConversations,
+  } = useConversations();
 
   const handleSelectConversation = useCallback((id: string) => {
     setCurrentConversationId(id);
@@ -51,6 +55,9 @@ export default function Home() {
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
         onDeleteConversation={handleDeleteConversation}
+        conversations={conversations}
+        conversationsLoading={conversationsLoading}
+        onRefetchConversations={refetchConversations}
       />
       <div className="flex-1 relative">
         <ChatWindow
