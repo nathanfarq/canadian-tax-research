@@ -22,7 +22,7 @@ export function ToolInvocationStep(props: {
   const isLoading = state === "input-streaming" || state === "input-available";
 
   return (
-    <div className="mr-auto bg-secondary border border-input rounded p-3 max-w-[80%] mb-2 whitespace-pre-wrap flex flex-col">
+    <div className="mr-auto bg-secondary border border-input rounded p-3 w-full mb-2 whitespace-pre-wrap flex flex-col">
       <button
         type="button"
         className={cn(
