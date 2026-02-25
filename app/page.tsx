@@ -63,7 +63,6 @@ export default function Home() {
         <ChatWindow
           endpoint="api/chat/retrieval_agents"
           placeholder="Ask a tax question..."
-          showIntermediateStepsToggle={true}
           initialMessage={WELCOME_MESSAGE}
           conversationId={currentConversationId}
           onConversationChange={handleConversationChange}

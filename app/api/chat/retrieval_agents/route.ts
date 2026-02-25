@@ -42,8 +42,8 @@ const AGENT_SYSTEM_PROMPT = systemPromptXml
 
 interface ApiChatMessage {
   role: string;
-  content: string;
-  parts?: Array<{ type: "text"; text: string }>;
+  content?: string;
+  parts?: Array<{ type: string; text?: string; [key: string]: unknown }>;
 }
 
 type NormalizedMessage = {
@@ -54,8 +54,19 @@ type NormalizedMessage = {
 interface ChatRequestBody {
   messages?: ApiChatMessage[];
   conversation_id?: string;
-  show_intermediate_steps?: boolean;
   selected_sources?: string[];
+}
+
+/** Extract plain text from a message that may have `content` or `parts`. */
+function extractMessageText(message: ApiChatMessage): string {
+  if (message.content) return message.content;
+  if (message.parts) {
+    return message.parts
+      .filter((p) => p.type === "text" && typeof p.text === "string")
+      .map((p) => p.text as string)
+      .join("");
+  }
+  return "";
 }
 
 /**
@@ -119,12 +130,17 @@ async function persistMessage(
   supabase: SupabaseClient,
   conversationId: string,
   role: "user" | "assistant",
-  content: string
+  content: string,
+  toolCalls?: Array<{ toolName: string; input: unknown; output?: unknown }>
 ): Promise<void> {
   try {
+    const insertData: Record<string, unknown> = { conversation_id: conversationId, role, content };
+    if (toolCalls) {
+      insertData.tool_calls = toolCalls;
+    }
     const { error: msgError } = await supabase
       .from("messages")
-      .insert({ conversation_id: conversationId, role, content });
+      .insert(insertData);
 
     if (msgError) {
       console.error("[PERSIST] Failed to save message:", msgError.message);
@@ -148,7 +164,11 @@ async function persistMessage(
 function normalizeMessages(messages: ApiChatMessage[]): NormalizedMessage[] {
   return messages.map((m) => ({
     role: m.role as NormalizedMessage["role"],
-    parts: m.parts ?? [{ type: "text", text: m.content }],
+    parts: m.parts
+      ? m.parts
+          .filter((p) => p.type === "text" && typeof p.text === "string")
+          .map((p) => ({ type: "text" as const, text: p.text as string }))
+      : [{ type: "text" as const, text: m.content ?? "" }],
   }));
 }
 
@@ -306,7 +326,6 @@ function createSearchTool(sourceFilter?: string[]) {
 export async function POST(req: NextRequest) {
   try {
     const body: ChatRequestBody = await req.json();
-    const returnIntermediateSteps = body.show_intermediate_steps;
     let conversationId = body.conversation_id;
     const searchDocsTool = createSearchTool(body.selected_sources);
 
@@ -325,7 +344,7 @@ export async function POST(req: NextRequest) {
     const latestUserMessage = [...filteredMessages]
       .reverse()
       .find((m) => m.role === "user");
-    const userMessageContent = latestUserMessage?.content ?? "";
+    const userMessageContent = latestUserMessage ? extractMessageText(latestUserMessage) : "";
 
     // For authenticated users: handle conversation persistence
     if (isAuthenticated && user) {
@@ -406,106 +425,54 @@ export async function POST(req: NextRequest) {
       responseHeaders["X-Conversation-ID"] = conversationId;
     }
 
-    if (!returnIntermediateSteps) {
-      // Stream response with tool calling
-      const result = streamText({
-        model: anthropic("claude-sonnet-4-6"),
-        system: AGENT_SYSTEM_PROMPT,
-        messages,
-        tools: { searchDocs: searchDocsTool },
-        stopWhen: stepCountIs(5),
-        temperature: 0.2,
-      });
+    // Stream response with tool calling using the data stream protocol.
+    // This streams text deltas, tool-call events, and tool-result events
+    // in a format that useChat's DataStreamChatTransport parses natively.
+    const result = streamText({
+      model: anthropic("claude-sonnet-4-6"),
+      system: AGENT_SYSTEM_PROMPT,
+      messages,
+      tools: { searchDocs: searchDocsTool },
+      stopWhen: stepCountIs(5),
+      temperature: 0.2,
+    });
 
-      // Use after() to reliably persist messages after the response stream completes.
-      // onFinish callbacks are unreliable in Next.js because the runtime may tear down
-      // the request context before the async callback finishes.
-      after(async () => {
-        const text = await result.text;
-        // Save to memory
-        if (userMessageContent && text) {
-          await addMessageToConversation(memoryKey, "user", userMessageContent);
-          await addMessageToConversation(memoryKey, "assistant", text);
-          // Check if summarization is needed after adding messages
-          await checkAndSummarize(memoryKey);
-        }
-        // Save assistant response to Supabase for authenticated users
-        if (isAuthenticated && conversationId && text) {
-          await persistMessage(supabase, conversationId, "assistant", text);
-        }
-      });
+    // Use after() to reliably persist messages after the response stream completes.
+    // onFinish callbacks are unreliable in Next.js because the runtime may tear down
+    // the request context before the async callback finishes.
+    after(async () => {
+      const text = await result.text;
+      const steps = await result.steps;
 
-      return result.toTextStreamResponse({ headers: responseHeaders });
-    } else {
-      // Return intermediate steps for debugging/display
-      const result = streamText({
-        model: anthropic("claude-sonnet-4-6"),
-        system: AGENT_SYSTEM_PROMPT,
-        messages,
-        tools: { searchDocs: searchDocsTool },
-        stopWhen: stepCountIs(5),
-        temperature: 0.2,
-      });
+      // Extract tool calls from all steps for persistence
+      const toolCalls = steps.flatMap((step) =>
+        step.toolCalls.map((tc, i) => ({
+          toolName: tc.toolName,
+          input: tc.input,
+          output: step.toolResults[i]?.output,
+        }))
+      );
 
-      // Collect all steps
-      const allSteps: Array<{
-        role: string;
-        content: string;
-        tool_calls?: Array<{ name: string; args: unknown }>;
-      }> = [];
-
-      for await (const part of result.fullStream) {
-        if (part.type === "tool-call") {
-          allSteps.push({
-            role: "assistant",
-            content: "",
-            tool_calls: [{ name: part.toolName, args: part.input }],
-          });
-        } else if (part.type === "tool-result") {
-          allSteps.push({
-            role: "tool",
-            content:
-              typeof part.output === "string"
-                ? part.output
-                : JSON.stringify(part.output),
-          });
-        } else if (part.type === "text-delta") {
-          // Accumulate text in the last assistant message or create new one
-          const lastStep = allSteps[allSteps.length - 1];
-          if (lastStep && lastStep.role === "assistant" && !lastStep.tool_calls) {
-            lastStep.content += part.text;
-          } else {
-            allSteps.push({
-              role: "assistant",
-              content: part.text,
-            });
-          }
-        }
-      }
-
-      // Extract final assistant response for persistence
-      const finalAssistantContent = allSteps
-        .filter((s) => s.role === "assistant" && !s.tool_calls && s.content)
-        .map((s) => s.content)
-        .join("");
-
-      // Save to memory (always, for context continuity)
-      if (userMessageContent && finalAssistantContent) {
+      // Save to memory
+      if (userMessageContent && text) {
         await addMessageToConversation(memoryKey, "user", userMessageContent);
-        await addMessageToConversation(memoryKey, "assistant", finalAssistantContent);
+        await addMessageToConversation(memoryKey, "assistant", text);
         // Check if summarization is needed after adding messages
         await checkAndSummarize(memoryKey);
       }
       // Save assistant response to Supabase for authenticated users
-      if (isAuthenticated && conversationId && finalAssistantContent) {
-        await persistMessage(supabase, conversationId, "assistant", finalAssistantContent);
+      if (isAuthenticated && conversationId && text) {
+        await persistMessage(
+          supabase,
+          conversationId,
+          "assistant",
+          text,
+          toolCalls.length > 0 ? toolCalls : undefined
+        );
       }
+    });
 
-      return NextResponse.json(
-        { messages: allSteps, conversation_id: conversationId },
-        { status: 200, headers: responseHeaders }
-      );
-    }
+    return result.toUIMessageStreamResponse({ headers: responseHeaders });
   } catch (e: unknown) {
     const error = e as { message?: string; status?: number };
     return NextResponse.json(

@@ -1,33 +1,41 @@
 import { useState } from "react";
-import type { UIMessage } from "@ai-sdk/react";
 import { cn } from "@/utils/cn";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, LoaderCircle } from "lucide-react";
 
-// Helper to extract text content from UIMessage parts
-function getMessageText(message: UIMessage): string {
-  return message.parts
-    .filter((part): part is { type: "text"; text: string } => part.type === "text")
-    .map((part) => part.text)
-    .join("");
+interface ToolInvocationProps {
+  toolName: string;
+  toolCallId: string;
+  state: string;
+  input: unknown;
+  output?: unknown;
 }
 
-export function IntermediateStep(props: { message: UIMessage }) {
-  const parsedInput = JSON.parse(getMessageText(props.message));
-  const action = parsedInput.action;
-  const observation = parsedInput.observation;
+export function ToolInvocationStep(props: {
+  invocation: ToolInvocationProps;
+  visible?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const { toolName, input, output, state } = props.invocation;
+
+  if (!props.visible) return null;
+
+  const isLoading = state === "input-streaming" || state === "input-available";
+
   return (
-    <div className="mr-auto bg-secondary border border-input rounded p-3 max-w-[80%] mb-8 whitespace-pre-wrap flex flex-col">
+    <div className="mr-auto bg-secondary border border-input rounded p-3 max-w-[80%] mb-2 whitespace-pre-wrap flex flex-col">
       <button
         type="button"
         className={cn(
           "text-left flex items-center gap-1",
           expanded && "w-full",
         )}
-        onClick={(e) => setExpanded(!expanded)}
+        onClick={() => setExpanded(!expanded)}
       >
-        <span>
-          Step: <strong className="font-mono">{action.name}</strong>
+        <span className="flex items-center gap-1">
+          {isLoading && (
+            <LoaderCircle className="w-4 h-4 animate-spin" />
+          )}
+          Step: <strong className="font-mono">{toolName}</strong>
         </span>
         <span className={cn(expanded && "hidden")}>
           <ChevronDown className="w-5 h-5" />
@@ -50,18 +58,22 @@ export function IntermediateStep(props: { message: UIMessage }) {
         >
           Input:{" "}
           <code className="max-h-[100px] overflow-auto">
-            {JSON.stringify(action.args)}
+            {JSON.stringify(input)}
           </code>
         </div>
-        <div
-          className={cn(
-            "rounded",
-            expanded ? "max-w-full" : "transition-[max-width] delay-100",
-          )}
-        >
-          Output:{" "}
-          <code className="max-h-[260px] overflow-auto">{observation}</code>
-        </div>
+        {output != null && (
+          <div
+            className={cn(
+              "rounded",
+              expanded ? "max-w-full" : "transition-[max-width] delay-100",
+            )}
+          >
+            Output:{" "}
+            <code className="max-h-[260px] overflow-auto block overflow-y-auto">
+              {typeof output === "string" ? output : JSON.stringify(output)}
+            </code>
+          </div>
+        )}
       </div>
     </div>
   );

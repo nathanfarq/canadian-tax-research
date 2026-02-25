@@ -11,9 +11,9 @@ vi.mock("@ai-sdk/react", () => ({
   useChat: (options: unknown) => mockUseChat(options),
 }));
 
-// Mock TextStreamChatTransport
+// Mock DefaultChatTransport
 vi.mock("ai", () => ({
-  TextStreamChatTransport: vi.fn().mockImplementation(() => ({})),
+  DefaultChatTransport: vi.fn().mockImplementation(() => ({})),
 }));
 
 // Mock sonner toast
@@ -71,26 +71,14 @@ describe("ChatWindow Integration", () => {
     ).toBeInTheDocument();
   });
 
-  it("should show intermediate steps toggle when enabled", () => {
+  it("should always show the steps toggle", () => {
     render(
       <ChatWindow
         endpoint="/api/chat/retrieval_agents"
-        showIntermediateStepsToggle={true}
       />
     );
 
     expect(screen.getByLabelText("Show steps")).toBeInTheDocument();
-  });
-
-  it("should not show intermediate steps toggle when disabled", () => {
-    render(
-      <ChatWindow
-        endpoint="/api/chat/retrieval_agents"
-        showIntermediateStepsToggle={false}
-      />
-    );
-
-    expect(screen.queryByLabelText("Show steps")).not.toBeInTheDocument();
   });
 
   it("should display user messages", () => {
@@ -173,19 +161,26 @@ describe("ChatWindow Integration", () => {
     expect(textarea).toHaveValue("Hello world");
   });
 
-  it("should display system messages as intermediate steps", () => {
+  it("should display tool invocations inline in assistant messages", () => {
     mockUseChat.mockReturnValue({
       messages: [
         {
           id: "1",
-          role: "system",
+          role: "assistant",
           parts: [
             {
+              type: "tool-invocation",
+              toolInvocation: {
+                toolCallId: "tc-1",
+                toolName: "searchDocs",
+                args: { query: "tax" },
+                result: "Found results",
+                state: "result",
+              },
+            },
+            {
               type: "text",
-              text: JSON.stringify({
-                action: { name: "searchDocs", args: { query: "tax" } },
-                observation: "Found results",
-              }),
+              text: "Based on the search results...",
             },
           ],
         },
@@ -198,5 +193,6 @@ describe("ChatWindow Integration", () => {
     render(<ChatWindow endpoint="/api/chat/retrieval_agents" />);
 
     expect(screen.getByText("searchDocs")).toBeInTheDocument();
+    expect(screen.getByText("Based on the search results...")).toBeInTheDocument();
   });
 });

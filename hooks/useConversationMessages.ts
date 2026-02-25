@@ -2,10 +2,17 @@
 
 import { useEffect, useState, useCallback } from "react";
 
+interface ToolCallData {
+  toolName: string;
+  input: unknown;
+  output?: unknown;
+}
+
 interface ApiMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  tool_calls?: ToolCallData[] | null;
   created_at: string;
 }
 
@@ -16,10 +23,24 @@ interface ApiConversation {
   updated_at: string;
 }
 
+// Tool parts use the v6 UIMessage format: type is "tool-{name}" with flat properties
+type ToolMessagePart = {
+  type: string; // "tool-searchDocs", "dynamic-tool", etc.
+  toolCallId: string;
+  toolName?: string;
+  state: "output-available";
+  input: unknown;
+  output: unknown;
+};
+
+type MessagePart =
+  | { type: "text"; text: string }
+  | ToolMessagePart;
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
-  parts: Array<{ type: "text"; text: string }>;
+  parts: MessagePart[];
 }
 
 interface UseConversationMessagesReturn {
@@ -61,13 +82,34 @@ export function useConversationMessages(
 
       const data = await response.json();
 
-      // Transform API messages to ChatMessage format
+      // Transform API messages to ChatMessage format, including tool call parts
       const transformedMessages: ChatMessage[] = (data.messages ?? []).map(
-        (msg: ApiMessage) => ({
-          id: msg.id,
-          role: msg.role,
-          parts: [{ type: "text" as const, text: msg.content }],
-        })
+        (msg: ApiMessage) => {
+          const parts: MessagePart[] = [];
+
+          // Add tool invocation parts before the text (they happened during generation)
+          if (msg.tool_calls?.length) {
+            for (let i = 0; i < msg.tool_calls.length; i++) {
+              const tc = msg.tool_calls[i];
+              parts.push({
+                type: `tool-${tc.toolName}`,
+                toolCallId: `${msg.id}-${tc.toolName}-${i}`,
+                state: "output-available",
+                input: tc.input,
+                output: tc.output,
+              });
+            }
+          }
+
+          // Add text part
+          parts.push({ type: "text" as const, text: msg.content });
+
+          return {
+            id: msg.id,
+            role: msg.role,
+            parts,
+          };
+        }
       );
 
       setMessages(transformedMessages);
