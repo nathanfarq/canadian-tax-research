@@ -13,7 +13,6 @@ export const COLLECTIONS: CollectionConfig[] = [
   { collectionName: "cra-collection", sourcePrefix: "cra", displayName: "CRA" },
   { collectionName: "dof-collection", sourcePrefix: "dof", displayName: "Dept. of Finance" },
   { collectionName: "eta-collection", sourcePrefix: "eta", displayName: "ETA" },
-  { collectionName: "fedbudget-collection", sourcePrefix: "fedbudget", displayName: "Federal Budget" },
   { collectionName: "ita-collection", sourcePrefix: "ita", displayName: "ITA" },
   { collectionName: "provtax-collection", sourcePrefix: "provtax", displayName: "Provincial Tax" },
   { collectionName: "taxlaw-collection", sourcePrefix: "taxlaw", displayName: "Tax Law" },

@@ -4,8 +4,7 @@ import { useCallback } from "react";
 import { toast } from "sonner";
 import { cn } from "@/utils/cn";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/useAuth";
-import { useConversations } from "@/hooks/useConversations";
+import type { Conversation } from "@/hooks/useConversations";
 import { useSidebar } from "@/contexts/SidebarContext";
 import { ConversationItem } from "./ConversationItem";
 
@@ -14,6 +13,10 @@ interface ConversationSidebarProps {
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
   onDeleteConversation?: (id: string) => void;
+  conversations: Conversation[];
+  conversationsLoading: boolean;
+  onRefetchConversations: () => Promise<void>;
+  isGuest: boolean;
 }
 
 export function ConversationSidebar({
@@ -21,9 +24,11 @@ export function ConversationSidebar({
   onSelectConversation,
   onNewConversation,
   onDeleteConversation,
+  conversations,
+  conversationsLoading,
+  isGuest,
+  onRefetchConversations,
 }: ConversationSidebarProps) {
-  const { isGuest, isLoading: authLoading } = useAuth();
-  const { conversations, isLoading: conversationsLoading, refetch } = useConversations();
   const { isCollapsed, setIsCollapsed, toggle } = useSidebar();
 
   const handleDelete = useCallback(async (id: string) => {
@@ -42,7 +47,7 @@ export function ConversationSidebar({
       }
 
       // Refetch conversations to update the list
-      await refetch();
+      await onRefetchConversations();
 
       toast.success("Conversation deleted");
     } catch (error) {
@@ -51,7 +56,7 @@ export function ConversationSidebar({
       });
       throw error; // Re-throw so ConversationItem knows it failed
     }
-  }, [currentConversationId, onDeleteConversation, refetch]);
+  }, [currentConversationId, onDeleteConversation, onRefetchConversations]);
 
   const handleRename = useCallback(async (id: string, newTitle: string) => {
     try {
@@ -68,7 +73,7 @@ export function ConversationSidebar({
       }
 
       // Refetch conversations to update the list
-      await refetch();
+      await onRefetchConversations();
 
       toast.success("Conversation renamed");
     } catch (error) {
@@ -77,9 +82,9 @@ export function ConversationSidebar({
       });
       throw error; // Re-throw so ConversationItem knows it failed
     }
-  }, [refetch]);
+  }, [onRefetchConversations]);
 
-  const isLoading = authLoading || conversationsLoading;
+  const isLoading = conversationsLoading;
 
   return (
     <>

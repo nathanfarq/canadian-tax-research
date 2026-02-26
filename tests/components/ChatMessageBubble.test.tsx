@@ -18,7 +18,7 @@ function createMessage(
 describe("ChatMessageBubble", () => {
   it("should render user message with correct styling", () => {
     const message = createMessage("user", "How do I file taxes?");
-    render(<ChatMessageBubble message={message} sources={[]} />);
+    render(<ChatMessageBubble message={message} />);
 
     const messageElement = screen.getByText("How do I file taxes?");
     const bubble = messageElement.closest("div[class*='rounded']");
@@ -27,7 +27,7 @@ describe("ChatMessageBubble", () => {
 
   it("should render assistant message with logo", () => {
     const message = createMessage("assistant", "You can file taxes online.");
-    render(<ChatMessageBubble message={message} sources={[]} />);
+    render(<ChatMessageBubble message={message} />);
 
     expect(screen.getByAltText("TaxBuddy")).toBeInTheDocument();
     expect(screen.getByText("You can file taxes online.")).toBeInTheDocument();
@@ -35,7 +35,7 @@ describe("ChatMessageBubble", () => {
 
   it("should not show logo for user messages", () => {
     const message = createMessage("user", "Hello");
-    render(<ChatMessageBubble message={message} sources={[]} />);
+    render(<ChatMessageBubble message={message} />);
 
     expect(screen.queryByAltText("TaxBuddy")).not.toBeInTheDocument();
   });
@@ -45,58 +45,52 @@ describe("ChatMessageBubble", () => {
       "assistant",
       "**Important**: File by April 30th"
     );
-    render(<ChatMessageBubble message={message} sources={[]} />);
+    render(<ChatMessageBubble message={message} />);
 
     // ReactMarkdown should render the bold text
     const strongElement = screen.getByText("Important");
     expect(strongElement.tagName).toBe("STRONG");
   });
 
-  it("should display sources when provided", () => {
-    const message = createMessage("assistant", "Answer");
-    const sources = [
-      { pageContent: "CRA guidance on filing deadlines", metadata: {} },
-    ];
+  it("should not display tool steps when showToolSteps is false", () => {
+    const message: UIMessage = {
+      id: "test-id",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-searchDocs",
+          toolCallId: "tc-1",
+          state: "output-available",
+          input: { query: "tax filing" },
+          output: "Search results...",
+        } as any,
+        { type: "text", text: "Answer" },
+      ],
+    };
+    render(<ChatMessageBubble message={message} showToolSteps={false} />);
 
-    render(<ChatMessageBubble message={message} sources={sources} />);
-
-    expect(screen.getByText("🔍 Sources:")).toBeInTheDocument();
-    expect(
-      screen.getByText(/"CRA guidance on filing deadlines"/)
-    ).toBeInTheDocument();
+    expect(screen.queryByText("searchDocs")).not.toBeInTheDocument();
+    expect(screen.getByText("Answer")).toBeInTheDocument();
   });
 
-  it("should display multiple sources", () => {
-    const message = createMessage("assistant", "Answer");
-    const sources = [
-      { pageContent: "Source one content", metadata: {} },
-      { pageContent: "Source two content", metadata: {} },
-    ];
+  it("should display tool steps inline when showToolSteps is true", () => {
+    const message: UIMessage = {
+      id: "test-id",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-searchDocs",
+          toolCallId: "tc-1",
+          state: "output-available",
+          input: { query: "tax filing" },
+          output: "Search results...",
+        } as any,
+        { type: "text", text: "Based on the results..." },
+      ],
+    };
+    render(<ChatMessageBubble message={message} showToolSteps={true} />);
 
-    render(<ChatMessageBubble message={message} sources={sources} />);
-
-    expect(screen.getByText(/"Source one content"/)).toBeInTheDocument();
-    expect(screen.getByText(/"Source two content"/)).toBeInTheDocument();
-  });
-
-  it("should not display sources section when empty", () => {
-    const message = createMessage("assistant", "Answer");
-    render(<ChatMessageBubble message={message} sources={[]} />);
-
-    expect(screen.queryByText("🔍 Sources:")).not.toBeInTheDocument();
-  });
-
-  it("should display line numbers when available in metadata", () => {
-    const message = createMessage("assistant", "Answer");
-    const sources = [
-      {
-        pageContent: "Tax code section",
-        metadata: { loc: { lines: { from: 10, to: 20 } } },
-      },
-    ];
-
-    render(<ChatMessageBubble message={message} sources={sources} />);
-
-    expect(screen.getByText(/Lines 10 to 20/)).toBeInTheDocument();
+    expect(screen.getByText("searchDocs")).toBeInTheDocument();
+    expect(screen.getByText("Based on the results...")).toBeInTheDocument();
   });
 });

@@ -1,40 +1,39 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { IntermediateStep } from "@/components/IntermediateStep";
-import type { UIMessage } from "@ai-sdk/react";
+import { ToolInvocationStep } from "@/components/IntermediateStep";
 
-// Helper to create a step message
-function createStepMessage(
-  action: { name: string; args: Record<string, unknown> },
-  observation: string
-): UIMessage {
-  return {
-    id: "step-1",
-    role: "system",
-    parts: [{ type: "text", text: JSON.stringify({ action, observation }) }],
-  };
-}
-
-describe("IntermediateStep", () => {
+describe("ToolInvocationStep", () => {
   it("should display tool name in collapsed state", () => {
-    const message = createStepMessage(
-      { name: "searchDocs", args: { query: "RRSP limits" } },
-      "Found 3 documents..."
+    render(
+      <ToolInvocationStep
+        invocation={{
+          toolName: "searchDocs",
+          toolCallId: "tc-1",
+          state: "output-available",
+          input: { query: "RRSP limits" },
+          output: "Found 3 documents...",
+        }}
+        visible={true}
+      />
     );
-
-    render(<IntermediateStep message={message} />);
 
     expect(screen.getByText("searchDocs")).toBeInTheDocument();
     expect(screen.getByText(/Step:/)).toBeInTheDocument();
   });
 
   it("should expand to show input and output on click", () => {
-    const message = createStepMessage(
-      { name: "searchDocs", args: { query: "RRSP limits" } },
-      "Source 1: RRSP contribution limit is $31,560 for 2024"
+    render(
+      <ToolInvocationStep
+        invocation={{
+          toolName: "searchDocs",
+          toolCallId: "tc-1",
+          state: "output-available",
+          input: { query: "RRSP limits" },
+          output: "Source 1: RRSP contribution limit is $31,560 for 2024",
+        }}
+        visible={true}
+      />
     );
-
-    render(<IntermediateStep message={message} />);
 
     const button = screen.getByRole("button");
     fireEvent.click(button);
@@ -47,29 +46,57 @@ describe("IntermediateStep", () => {
   });
 
   it("should show args as JSON", () => {
-    const message = createStepMessage(
-      { name: "searchDocs", args: { query: "capital gains", year: 2024 } },
-      "Results found"
+    render(
+      <ToolInvocationStep
+        invocation={{
+          toolName: "searchDocs",
+          toolCallId: "tc-1",
+          state: "output-available",
+          input: { query: "capital gains", year: 2024 },
+          output: "Results found",
+        }}
+        visible={true}
+      />
     );
-
-    render(<IntermediateStep message={message} />);
 
     const button = screen.getByRole("button");
     fireEvent.click(button);
 
-    // Should show stringified args
     expect(
       screen.getByText('{"query":"capital gains","year":2024}')
     ).toBeInTheDocument();
   });
 
-  it("should toggle collapse state", () => {
-    const message = createStepMessage(
-      { name: "searchDocs", args: { query: "test" } },
-      "result"
+  it("should not render when visible is false", () => {
+    const { container } = render(
+      <ToolInvocationStep
+        invocation={{
+          toolName: "searchDocs",
+          toolCallId: "tc-1",
+          state: "output-available",
+          input: { query: "test" },
+          output: "result",
+        }}
+        visible={false}
+      />
     );
 
-    render(<IntermediateStep message={message} />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("should toggle collapse state", () => {
+    render(
+      <ToolInvocationStep
+        invocation={{
+          toolName: "searchDocs",
+          toolCallId: "tc-1",
+          state: "output-available",
+          input: { query: "test" },
+          output: "result",
+        }}
+        visible={true}
+      />
+    );
 
     const button = screen.getByRole("button");
 
@@ -79,7 +106,6 @@ describe("IntermediateStep", () => {
 
     // Click again to collapse
     fireEvent.click(button);
-    // Content div should have max-h-[0px] class (collapsed)
     const contentDiv = screen.getByText(/Input:/).closest("div")?.parentElement;
     expect(contentDiv).toHaveClass("max-h-[0px]");
   });

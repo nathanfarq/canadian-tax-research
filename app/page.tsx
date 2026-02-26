@@ -19,7 +19,12 @@ What can I help you with today?`;
 
 export default function Home() {
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const { refetch: refetchConversations } = useConversations();
+  const {
+    conversations,
+    isLoading: conversationsLoading,
+    refetch: refetchConversations,
+    isGuest,
+  } = useConversations();
 
   const handleSelectConversation = useCallback((id: string) => {
     setCurrentConversationId(id);
@@ -51,12 +56,15 @@ export default function Home() {
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
         onDeleteConversation={handleDeleteConversation}
+        conversations={conversations}
+        conversationsLoading={conversationsLoading}
+        onRefetchConversations={refetchConversations}
+        isGuest={isGuest}
       />
       <div className="flex-1 relative">
         <ChatWindow
           endpoint="api/chat/retrieval_agents"
           placeholder="Ask a tax question..."
-          showIntermediateStepsToggle={true}
           initialMessage={WELCOME_MESSAGE}
           conversationId={currentConversationId}
           onConversationChange={handleConversationChange}

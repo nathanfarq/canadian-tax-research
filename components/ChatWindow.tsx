@@ -1,14 +1,13 @@
 "use client";
 
 import { type UIMessage, useChat } from "@ai-sdk/react";
-import { TextStreamChatTransport } from "ai";
+import { DefaultChatTransport } from "ai";
 import { useState, useMemo, useEffect, useRef } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { toast } from "sonner";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 import { ChatMessageBubble } from "@/components/ChatMessageBubble";
-import { IntermediateStep } from "./IntermediateStep";
 import { Button } from "./ui/button";
 import { ArrowDown, ChevronDown, LoaderCircle, Paperclip } from "lucide-react";
 import { Checkbox } from "./ui/checkbox";
@@ -28,7 +27,6 @@ const SOURCE_FILTERS = [
   { key: "cra",       label: "CRA" },
   { key: "dof",       label: "DoF" },
   { key: "eta",       label: "ETA" },
-  { key: "fedbudget", label: "Fed Budget" },
   { key: "ita",       label: "ITA" },
   { key: "provtax",   label: "Prov Tax" },
   { key: "taxlaw",    label: "Tax Law" },
@@ -36,14 +34,6 @@ const SOURCE_FILTERS = [
 ] as const;
 
 const ALL_SOURCE_KEYS = SOURCE_FILTERS.map((s) => s.key) as string[];
-
-// Helper to extract text content from UIMessage parts
-function getMessageText(message: UIMessage): string {
-  return message.parts
-    .filter((part): part is { type: "text"; text: string } => part.type === "text")
-    .map((part) => part.text)
-    .join("");
-}
 
 // Helper to create a UIMessage with text content
 function createTextMessage(
@@ -61,20 +51,15 @@ function createTextMessage(
 function ChatMessages(props: {
   messages: UIMessage[];
   emptyStateComponent: ReactNode;
-  sourcesForMessages: Record<string, any>;
   aiEmoji?: string;
   className?: string;
   onEditMessage?: (messageId: string, newContent: string) => void;
   isLoading?: boolean;
+  showToolSteps?: boolean;
 }) {
   return (
     <div className="flex flex-col max-w-[768px] mx-auto pb-12 w-full">
       {props.messages.map((m, i) => {
-        if (m.role === "system") {
-          return <IntermediateStep key={m.id} message={m} />;
-        }
-
-        const sourceKey = (props.messages.length - 1 - i).toString();
         // Only allow editing the last user message and when not loading
         const isLastUserMessage = m.role === "user" &&
           props.messages.slice(i + 1).every(msg => msg.role !== "user");
@@ -84,9 +69,9 @@ function ChatMessages(props: {
             key={m.id}
             message={m}
             aiEmoji={props.aiEmoji}
-            sources={props.sourcesForMessages[sourceKey]}
             onEdit={props.onEditMessage}
             isEditable={isLastUserMessage && !props.isLoading}
+            showToolSteps={props.showToolSteps}
           />
         );
       })}
@@ -234,21 +219,11 @@ export function ChatWindow(props: {
   placeholder?: string;
   emoji?: string;
   showIngestForm?: boolean;
-  showIntermediateStepsToggle?: boolean;
   initialMessage?: string;
   conversationId?: string | null;
   onConversationChange?: (id: string | null) => void;
 }) {
-  const [showIntermediateSteps, setShowIntermediateSteps] = useState(
-    !!props.showIntermediateStepsToggle,
-  );
-  const [intermediateStepsLoading, setIntermediateStepsLoading] =
-    useState(false);
-
-  const [sourcesForMessages, setSourcesForMessages] = useState<
-    Record<string, any>
-  >({});
-
+  const [showToolSteps, setShowToolSteps] = useState(true);
   const [inputValue, setInputValue] = useState("");
 
   const [selectedSources, setSelectedSources] = useState<string[]>([...ALL_SOURCE_KEYS]);
@@ -281,15 +256,33 @@ export function ChatWindow(props: {
   // Track current conversation ID for sending with requests
   const currentConversationIdRef = useRef<string | null>(props.conversationId ?? null);
 
+  // Keep a stable ref to onConversationChange so the transport closure always uses the latest version
+  const onConversationChangeRef = useRef(props.onConversationChange);
+  useEffect(() => {
+    onConversationChangeRef.current = props.onConversationChange;
+  }, [props.onConversationChange]);
+
   // Fetch conversation messages when conversationId changes
   const {
     messages: loadedMessages,
     isLoading: isLoadingConversation,
   } = useConversationMessages(props.conversationId);
 
-  // Create transport for the chat API endpoint
+  // Create transport for the chat API endpoint with custom fetch to capture headers
   const transport = useMemo(
-    () => new TextStreamChatTransport({ api: props.endpoint }),
+    () => new DefaultChatTransport({
+      api: props.endpoint,
+      fetch: async (url, init) => {
+        const response = await globalThis.fetch(url, init);
+        // Capture conversation ID from response header
+        const newConversationId = response.headers.get("X-Conversation-ID");
+        if (newConversationId && newConversationId !== currentConversationIdRef.current) {
+          currentConversationIdRef.current = newConversationId;
+          onConversationChangeRef.current?.(newConversationId);
+        }
+        return response;
+      },
+    }),
     [props.endpoint]
   );
 
@@ -310,11 +303,12 @@ export function ChatWindow(props: {
   useEffect(() => {
     if (props.conversationId && loadedMessages.length > 0) {
       // Convert loaded messages to UIMessage format
-      const uiMessages: UIMessage[] = loadedMessages.map((msg) => ({
+      // Cast parts since our persisted tool parts use string type which is compatible at runtime
+      const uiMessages = loadedMessages.map((msg) => ({
         id: msg.id,
         role: msg.role,
         parts: msg.parts,
-      }));
+      })) as UIMessage[];
       chat.setMessages(uiMessages);
     } else if (props.conversationId === null) {
       // New chat - clear messages and show welcome
@@ -332,310 +326,47 @@ export function ChatWindow(props: {
     }
   }, []);
 
-  // Helper to handle conversation ID from response
-  function handleConversationIdFromResponse(response: Response) {
-    const newConversationId = response.headers.get("X-Conversation-ID");
-    if (newConversationId && newConversationId !== currentConversationIdRef.current) {
-      currentConversationIdRef.current = newConversationId;
-      props.onConversationChange?.(newConversationId);
-    }
-  }
-
   async function sendMessage(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (chat.status === "streaming" || intermediateStepsLoading) return;
+    if (chat.status === "streaming") return;
+    if (!inputValue.trim()) return;
 
-    if (!showIntermediateSteps) {
-      // For streaming mode, we need to intercept the response to get the conversation ID
-      // The useChat hook handles streaming, but we need the header
-      const messagesForApi = [...chat.messages, createTextMessage("temp", "user", inputValue)].map((m) => ({
-        role: m.role,
-        content: getMessageText(m),
-      }));
+    const text = inputValue;
+    setInputValue("");
 
-      // Make a preflight-style request to get conversation ID, then let useChat handle streaming
-      // Actually, we need to modify the transport or use fetch directly
-      // For now, send via fetch to capture headers, then update chat state
-      const response = await fetch(props.endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: messagesForApi,
+    await chat.sendMessage(
+      { text },
+      {
+        body: {
           conversation_id: currentConversationIdRef.current,
           selected_sources: selectedSources,
-        }),
-      });
-
-      handleConversationIdFromResponse(response);
-
-      if (!response.ok) {
-        const json = await response.json();
-        toast.error(`Error while processing your request`, { description: json.error });
-        return;
+        },
       }
-
-      // Read the stream and update messages
-      const reader = response.body?.getReader();
-      if (!reader) return;
-
-      const userMessage = createTextMessage(chat.messages.length.toString(), "user", inputValue);
-      const newMessages = [...chat.messages, userMessage];
-      chat.setMessages(newMessages);
-      setInputValue("");
-
-      let assistantContent = "";
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        assistantContent += chunk;
-
-        // Update assistant message in real-time
-        chat.setMessages([
-          ...newMessages,
-          createTextMessage((newMessages.length).toString(), "assistant", assistantContent),
-        ]);
-      }
-
-      return;
-    }
-
-    // Some extra work to show intermediate steps properly
-    setIntermediateStepsLoading(true);
-
-    const userMessage = createTextMessage(
-      chat.messages.length.toString(),
-      "user",
-      inputValue
     );
-    setInputValue("");
-    const messagesWithUserReply = [...chat.messages, userMessage];
-    chat.setMessages(messagesWithUserReply);
-
-    // Convert UIMessages to a simpler format for the API
-    const apiMessages = messagesWithUserReply.map((m) => ({
-      role: m.role,
-      content: getMessageText(m),
-    }));
-
-    const response = await fetch(props.endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: apiMessages,
-        conversation_id: currentConversationIdRef.current,
-        show_intermediate_steps: true,
-        selected_sources: selectedSources,
-      }),
-    });
-
-    handleConversationIdFromResponse(response);
-
-    const json = await response.json();
-    setIntermediateStepsLoading(false);
-
-    if (!response.ok) {
-      toast.error(`Error while processing your request`, {
-        description: json.error,
-      });
-      return;
-    }
-
-    // Response messages from LangChain API (not UIMessage format)
-    interface LangChainMessage {
-      role: string;
-      content: string;
-      tool_calls?: Array<{ name: string; args: unknown }>;
-    }
-    const responseMessages: LangChainMessage[] = json.messages;
-
-    // Represent intermediate steps as system messages for display purposes
-    // Explicitly pair assistant tool calls with their tool responses
-    const intermediateStepMessages: UIMessage[] = [];
-    let stepIndex = 0;
-
-    for (let i = 0; i < responseMessages.length; i++) {
-      const message = responseMessages[i];
-
-      // Find assistant messages with tool calls
-      if (message.role === "assistant" && message.tool_calls?.length) {
-        // Look for the next tool message as the response
-        const toolMessage = responseMessages[i + 1];
-
-        if (toolMessage?.role === "tool") {
-          intermediateStepMessages.push(
-            createTextMessage(
-              (messagesWithUserReply.length + stepIndex).toString(),
-              "system",
-              JSON.stringify({
-                action: message.tool_calls[0],
-                observation: toolMessage.content,
-              })
-            )
-          );
-          stepIndex++;
-        }
-      }
-    }
-    const newMessages = [...messagesWithUserReply];
-    for (const message of intermediateStepMessages) {
-      newMessages.push(message);
-      chat.setMessages([...newMessages]);
-      await new Promise((resolve) =>
-        setTimeout(resolve, 1000 + Math.random() * 1000),
-      );
-    }
-
-    const lastResponseContent =
-      responseMessages[responseMessages.length - 1]?.content ?? "";
-    chat.setMessages([
-      ...newMessages,
-      createTextMessage(newMessages.length.toString(), "assistant", lastResponseContent),
-    ]);
   }
 
   // Handle editing a message and resubmitting
   async function handleEditMessage(messageId: string, newContent: string) {
-    if (chat.status === "streaming" || intermediateStepsLoading) return;
+    if (chat.status === "streaming") return;
 
     // Find the message index
     const messageIndex = chat.messages.findIndex((m) => m.id === messageId);
     if (messageIndex === -1) return;
 
-    // Create updated message
-    const updatedMessage = createTextMessage(messageId, "user", newContent);
-
-    // Keep only messages up to and including the edited message
+    // Keep only messages before the edited one
     const messagesUpToEdit = chat.messages.slice(0, messageIndex);
-    const newMessages = [...messagesUpToEdit, updatedMessage];
+    chat.setMessages(messagesUpToEdit);
 
-    // Update messages in the UI immediately
-    chat.setMessages(newMessages);
-
-    // Prepare messages for API
-    const messagesForApi = newMessages.map((m) => ({
-      role: m.role,
-      content: getMessageText(m),
-    }));
-
-    // Send to API and get response
-    if (!showIntermediateSteps) {
-      const response = await fetch(props.endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: messagesForApi,
+    // Submit the edited content as a new message
+    await chat.sendMessage(
+      { text: newContent },
+      {
+        body: {
           conversation_id: currentConversationIdRef.current,
           selected_sources: selectedSources,
-        }),
-      });
-
-      handleConversationIdFromResponse(response);
-
-      if (!response.ok) {
-        const json = await response.json();
-        toast.error(`Error while processing your request`, { description: json.error });
-        return;
+        },
       }
-
-      // Read the stream and update messages
-      const reader = response.body?.getReader();
-      if (!reader) return;
-
-      let assistantContent = "";
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        assistantContent += chunk;
-
-        // Update assistant message in real-time
-        chat.setMessages([
-          ...newMessages,
-          createTextMessage((newMessages.length).toString(), "assistant", assistantContent),
-        ]);
-      }
-    } else {
-      // Handle intermediate steps mode
-      setIntermediateStepsLoading(true);
-
-      const response = await fetch(props.endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: messagesForApi,
-          conversation_id: currentConversationIdRef.current,
-          show_intermediate_steps: true,
-          selected_sources: selectedSources,
-        }),
-      });
-
-      handleConversationIdFromResponse(response);
-
-      const json = await response.json();
-      setIntermediateStepsLoading(false);
-
-      if (!response.ok) {
-        toast.error(`Error while processing your request`, {
-          description: json.error,
-        });
-        return;
-      }
-
-      interface LangChainMessage {
-        role: string;
-        content: string;
-        tool_calls?: Array<{ name: string; args: unknown }>;
-      }
-      const responseMessages: LangChainMessage[] = json.messages;
-
-      const intermediateStepMessages: UIMessage[] = [];
-      let stepIndex = 0;
-
-      for (let i = 0; i < responseMessages.length; i++) {
-        const message = responseMessages[i];
-
-        if (message.role === "assistant" && message.tool_calls?.length) {
-          const toolMessage = responseMessages[i + 1];
-
-          if (toolMessage?.role === "tool") {
-            intermediateStepMessages.push(
-              createTextMessage(
-                (newMessages.length + stepIndex).toString(),
-                "system",
-                JSON.stringify({
-                  action: message.tool_calls[0],
-                  observation: toolMessage.content,
-                })
-              )
-            );
-            stepIndex++;
-          }
-        }
-      }
-
-      const messagesWithSteps = [...newMessages];
-      for (const message of intermediateStepMessages) {
-        messagesWithSteps.push(message);
-        chat.setMessages([...messagesWithSteps]);
-        await new Promise((resolve) =>
-          setTimeout(resolve, 1000 + Math.random() * 1000)
-        );
-      }
-
-      const lastResponseContent =
-        responseMessages[responseMessages.length - 1]?.content ?? "";
-      chat.setMessages([
-        ...messagesWithSteps,
-        createTextMessage(messagesWithSteps.length.toString(), "assistant", lastResponseContent),
-      ]);
-    }
+    );
   }
 
   // Show loading state when fetching conversation
@@ -665,9 +396,9 @@ export function ChatWindow(props: {
             aiEmoji={props.emoji}
             messages={chat.messages}
             emptyStateComponent={props.emptyStateComponent}
-            sourcesForMessages={sourcesForMessages}
             onEditMessage={handleEditMessage}
-            isLoading={chat.status === "streaming" || intermediateStepsLoading}
+            isLoading={chat.status === "streaming"}
+            showToolSteps={showToolSteps}
           />
         )
       }
@@ -676,7 +407,7 @@ export function ChatWindow(props: {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onSubmit={sendMessage}
-          loading={chat.status === "streaming" || intermediateStepsLoading}
+          loading={chat.status === "streaming"}
           placeholder={props.placeholder ?? "Type your message here..."}
         >
           {/* Sources dropdown */}
@@ -729,18 +460,15 @@ export function ChatWindow(props: {
             </button>
           </div>
 
-          {props.showIntermediateStepsToggle && (
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <Checkbox
-                id="show_intermediate_steps"
-                name="show_intermediate_steps"
-                checked={showIntermediateSteps}
-                disabled={chat.status === "streaming" || intermediateStepsLoading}
-                onCheckedChange={(e) => setShowIntermediateSteps(!!e)}
-              />
-              <span className="text-xs text-muted-foreground">Show steps</span>
-            </label>
-          )}
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <Checkbox
+              id="show_tool_steps"
+              name="show_tool_steps"
+              checked={showToolSteps}
+              onCheckedChange={(e) => setShowToolSteps(!!e)}
+            />
+            <span className="text-xs text-muted-foreground">Show steps</span>
+          </label>
 
           {props.showIngestForm && (
             <Dialog>

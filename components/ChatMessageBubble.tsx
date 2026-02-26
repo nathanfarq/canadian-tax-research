@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
 import { Pencil, Check, X } from "lucide-react";
 import { Button } from "./ui/button";
+import { ToolInvocationStep } from "./IntermediateStep";
 
 // Helper to extract text content from UIMessage parts
 function getMessageText(message: UIMessage): string {
@@ -18,9 +19,9 @@ function getMessageText(message: UIMessage): string {
 export function ChatMessageBubble(props: {
   message: UIMessage;
   aiEmoji?: string;
-  sources: any[];
   onEdit?: (messageId: string, newContent: string) => void;
   isEditable?: boolean;
+  showToolSteps?: boolean;
 }) {
   const messageContent = getMessageText(props.message);
   const [isEditing, setIsEditing] = useState(false);
@@ -134,41 +135,45 @@ export function ChatMessageBubble(props: {
             </div>
           </div>
         ) : (
-          <div
-            className={cn(
-              "max-w-none",
-              !isUserMessage && "prose prose-sm text-foreground",
-            )}
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {messageContent}
-            </ReactMarkdown>
-          </div>
-        )}
-
-        {props.sources && props.sources.length ? (
-          <>
-            <code className="mt-4 mr-auto bg-primary px-2 py-1 rounded">
-              <h2>🔍 Sources:</h2>
-            </code>
-            <code className="mt-1 mr-2 bg-primary px-2 py-1 rounded text-xs">
-              {props.sources?.map((source, i) => (
-                <div className="mt-2" key={"source:" + i}>
-                  {i + 1}. &quot;{source.pageContent}&quot;
-                  {source.metadata?.loc?.lines !== undefined ? (
-                    <div>
-                      <br />
-                      Lines {source.metadata?.loc?.lines?.from} to{" "}
-                      {source.metadata?.loc?.lines?.to}
-                    </div>
-                  ) : (
-                    ""
+          // Render message parts in order — text and tool invocations interleaved
+          props.message.parts.map((part, index) => {
+            if (part.type === "text" && part.text) {
+              return (
+                <div
+                  key={index}
+                  className={cn(
+                    "max-w-none",
+                    !isUserMessage && "prose prose-sm text-foreground",
                   )}
+                >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {part.text}
+                  </ReactMarkdown>
                 </div>
-              ))}
-            </code>
-          </>
-        ) : null}
+              );
+            }
+            // Tool parts have type "tool-{name}" (e.g., "tool-searchDocs") or "dynamic-tool"
+            if (part.type.startsWith("tool-") || part.type === "dynamic-tool") {
+              const toolPart = part as { type: string; toolCallId: string; state: string; input: unknown; output?: unknown; toolName?: string };
+              // Extract tool name from type (e.g., "tool-searchDocs" -> "searchDocs")
+              const toolName = toolPart.toolName ?? part.type.replace(/^tool-/, "");
+              return (
+                <ToolInvocationStep
+                  key={index}
+                  invocation={{
+                    toolName,
+                    toolCallId: toolPart.toolCallId,
+                    state: toolPart.state,
+                    input: toolPart.input,
+                    output: toolPart.output,
+                  }}
+                  visible={props.showToolSteps ?? true}
+                />
+              );
+            }
+            return null;
+          })
+        )}
       </div>
     </div>
   );

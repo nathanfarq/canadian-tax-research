@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 
@@ -14,12 +14,14 @@ interface UseAuthReturn {
 export function useAuth(): UseAuthReturn {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
 
     // Get initial session
     supabase.auth.getUser().then(({ data: { user } }) => {
+      userIdRef.current = user?.id ?? null;
       setUser(user);
       setIsLoading(false);
     });
@@ -27,7 +29,14 @@ export function useAuth(): UseAuthReturn {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
-        setUser(session?.user ?? null);
+        const newUser = session?.user ?? null;
+        const newUserId = newUser?.id ?? null;
+        // Only update user state if the identity actually changed,
+        // avoiding unnecessary re-renders from TOKEN_REFRESHED etc.
+        if (newUserId !== userIdRef.current) {
+          userIdRef.current = newUserId;
+          setUser(newUser);
+        }
         setIsLoading(false);
       }
     );
