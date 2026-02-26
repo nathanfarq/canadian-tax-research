@@ -98,7 +98,7 @@ export function ChatMessageBubble(props: {
         </div>
       )}
 
-      <div className="flex flex-col flex-1">
+      <div className="flex flex-col flex-1 min-w-0">
         {isEditing ? (
           <div className="flex flex-col gap-2">
             <textarea
