@@ -1,14 +1,14 @@
 # TaxBuddy — Canadian Tax Research Assistant
 
-> **Status: Archived reference implementation.** The data pipeline that populated the vector database is no longer operational. The live demo runs on a frozen dataset.
+> **Status: Active hosted tax research chat platform.** The data pipeline is frozen; source documents were last updated April 27, 2026. The owner no longer actively maintains or improves this project.
 
-**Live demo:** [taxbuddy.online](https://taxbuddy.online)
+**Live demo:** [canadian-tax-research-e5tan73x6-nathanfarqs-projects.vercel.app](https://canadian-tax-research-e5tan73x6-nathanfarqs-projects.vercel.app/)
 
 ---
 
 ## What This Is
 
-TaxBuddy is an AI-powered research tool for Canadian tax professionals. It uses retrieval-augmented generation (RAG) to answer questions about Canadian tax law, citing the specific source documents behind each answer.
+TaxBuddy is an AI-powered research tool for Canadian tax professionals. It uses retrieval-augmented generation (RAG) to answer questions about Canadian tax legislation, citing the specific source documents behind each answer.
 
 The assistant searches across 7 collections of authoritative Canadian tax sources:
 
@@ -26,15 +26,13 @@ Questions are answered exclusively from retrieved documents — the model is exp
 
 ---
 
-## Why It's Archived
+## Maintenance Status
 
-The data pipeline that originally scraped and ingested Canadian government tax sources into Qdrant is no longer operational (government sites now block the scraping approach). The pipeline itself is not included in this repo.
+The owner no longer actively maintains or improves this project. The data pipeline (which scraped and ingested Canadian government tax sources into Qdrant) is not included in this repo — it can be found on the [owner's GitHub account](https://github.com/nathanfarq).
 
 **What works:** the full application stack — chat interface, RAG retrieval, conversation history, authentication, streaming responses.
 
-**What doesn't:** ingesting new or updated source documents. The Qdrant collections contain a frozen snapshot of Canadian tax sources as of early 2026.
-
-This repo is preserved as a reference implementation for anyone building a similar RAG-based research tool.
+**What's out of date:** source documents. The Qdrant collections contain a frozen snapshot of Canadian tax sources; the last ingestion was April 27, 2026. Tax rules or CRA guidance published after that date will not be reflected in answers.
 
 ---
 
@@ -121,7 +119,7 @@ The app uses standard Next.js serverless functions — no special Vercel configu
 
 ## Known Limitations
 
-- Source documents are frozen as of early 2026; the app does not fetch live CRA updates
+- Source documents were last updated April 27, 2026; the app does not fetch live CRA updates
 - The data ingestion pipeline (scrapers for Canadian government tax sources) is not included in this repo
 - LangGraph example routes have been removed; the app exposes only the production RAG chat interface
 - Guest mode persists conversations in the browser session only; create an account for history across sessions
